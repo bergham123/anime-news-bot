@@ -1,27 +1,53 @@
-name: Anime News Bot
+name: Crunchyroll News Bot
 
+# Run this workflow automatically
 on:
+  # Schedule it to run every 10 minutes
   schedule:
-    - cron: '*/15 * * * *' # Runs every 15 minutes
-  workflow_dispatch:       # Allows you to run it manually
+    - cron: '*/10 * * * *'
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Get code
+      # 1. Get the code from the repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2. Download the 'sent_posts.txt' file from the previous run
+      # This will fail on the first run, which is expected.
+      - name: Download sent posts
+        uses: actions/download-artifact@v3
+        with:
+          name: sent-posts-cache
+          path: .
+        continue-on-error: true
+
+      # 3. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # 4. Install dependencies
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run the script
+      # 5. Run the bot script
+      # The secrets are passed here as environment variables
+      - name: Run the bot
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
+
+      # 6. Upload the updated 'sent_posts.txt' file for the next run
+      - name: Upload sent posts
+        uses: actions/upload-artifact@v3
+        with:
+          name: sent-posts-cache
+          path: sent_posts.txt
