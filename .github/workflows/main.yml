@@ -1,12 +1,9 @@
 name: Crunchyroll News Bot
 
-# Run this workflow automatically
 on:
-  # Schedule it to run every 10 minutes
   schedule:
-    - cron: '*/10 * * * *'
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+    - cron: '*/10 * * * *' # Runs every 10 minutes
+  workflow_dispatch:       # Allows manual run
 
 jobs:
   run-bot:
@@ -17,36 +14,38 @@ jobs:
         uses: actions/checkout@v3
 
       # 2. Download the 'sent_posts.txt' file from the previous run
-      # This will fail on the first run, which is expected.
-      - name: Download sent posts
+      - name: Download sent posts cache
         uses: actions/download-artifact@v3
         with:
           name: sent-posts-cache
           path: .
-        continue-on-error: true
+        continue-on-error: true # It's okay if it fails on the very first run
 
-      # 3. Set up Python
+      # 3. Install system dependencies for Pillow
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libjpeg-dev zlib1g-dev
+
+      # 4. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 4. Install dependencies
+      # 5. Install Python dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5. Run the bot script
-      # The secrets are passed here as environment variables
+      # 6. Run the bot script
       - name: Run the bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
 
-      # 6. Upload the updated 'sent_posts.txt' file for the next run
-      - name: Upload sent posts
+      # 7. Upload the updated 'sent_posts.txt' file for the next run
+      - name: Upload sent posts cache
         uses: actions/upload-artifact@v3
         with:
           name: sent-posts-cache
