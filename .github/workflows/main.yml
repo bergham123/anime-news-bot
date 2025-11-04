@@ -1,36 +1,48 @@
-# --- Main execution function (NO LOOP) ---
-def main():
-    logging.info("="*20)
-    logging.info("Starting a new bot run...")
-    
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.error("FATAL: TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set in environment variables.")
-        return
+name: Crunchyroll News Bot
 
-    # Check if this is the first run by seeing if the sent file exists
-    is_first_run = not os.path.exists(SENT_FILE)
-    if is_first_run:
-        logging.info("FIRST RUN DETECTED: The 'sent_posts.txt' file does not exist.")
+on:
+  schedule:
+    - cron: '*/10 * * * *' # Runs every 10 minutes
+  workflow_dispatch:       # Allows manual run
 
-    sent_posts = load_sent_posts()
-    post = get_latest_post()
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Get the code from the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    if post:
-        # On the first run, we always send the latest post to ensure it works.
-        if post["title"] not in sent_posts or is_first_run:
-            logging.info(f"New post detected or first run. Sending: '{post['title']}'")
-            success = send_post(post["title"], post["image_url"], post["description"])
-            if success:
-                save_sent_post(post["title"])
-                logging.info("Post sent and title saved for future reference.")
-        else:
-            logging.info(f"Post '{post['title']}' already sent. Nothing to do.")
-    else:
-        logging.warning("Could not retrieve the latest post from the feed.")
+      # 2. Download the 'sent_posts.txt' file from the previous run
+      - name: Download sent posts cache
+        uses: actions/download-artifact@v4
+        with:
+          name: sent-posts-cache
+          path: .
+        continue-on-error: true
 
-    logging.info("Bot run finished.")
-    logging.info("="*20)
+      # 3. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
+      # 4. Install Python dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-if __name__ == "__main__":
-    main()
+      # 5. Run the bot script
+      - name: Run the bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
+
+      # 6. Upload the updated 'sent_posts.txt' file for the next run
+      - name: Upload sent posts cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: sent-posts-cache
+          path: sent_posts.txt
