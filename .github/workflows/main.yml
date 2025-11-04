@@ -18,8 +18,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: sent-posts-cache
-          path: .
-        continue-on-error: true
+          path: . # Download to the root of the workspace
+        continue-on-error: true # It's okay if it fails on the first run
 
       # 3. Set up Python
       - name: Set up Python
@@ -36,14 +36,17 @@ jobs:
       # 5. Run the bot script
       - name: Run the bot
         env:
-          # Make sure these names match the ones in bot.py
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
 
-      # 6. Upload the updated 'sent_posts.txt' file for the next run
+      # 6. DEBUG: List files to see if sent_posts.txt exists
+      - name: List workspace files
+        run: ls -la
+
+      # 7. Upload the updated 'sent_posts.txt' file for the next run
       - name: Upload sent posts cache
         uses: actions/upload-artifact@v4
         with:
           name: sent-posts-cache
-          path: sent_posts.txt
+          path: sent_posts.txt # Make sure this path is correct
