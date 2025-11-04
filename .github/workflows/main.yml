@@ -36,6 +36,7 @@ jobs:
       # 5. Run the bot script
       - name: Run the bot
         env:
+          # Make sure these names match the ones in bot.py
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
