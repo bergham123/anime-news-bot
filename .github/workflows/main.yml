@@ -2,36 +2,40 @@ name: Crunchyroll News Bot
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # Runs every 10 minutes
-  workflow_dispatch:       # Allows manual run
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      # 1. Get the code from the repository
+      # 1. Checkout the repository using the PAT for authentication
       - name: Checkout repository
         uses: actions/checkout@v3
-
-      # 2. Download the 'sent_posts.txt' file from the previous run
-      - name: Download sent posts cache
-        uses: actions/download-artifact@v4
         with:
-          name: sent-posts-cache
-          path: . # Download to the root of the workspace
-        continue-on-error: true # It's okay if it fails on the first run
+          token: ${{ secrets.PAT_FOR_COMMIT }}
 
-      # 3. Set up Python
+      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 4. Install Python dependencies
+      # 3. Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # 4. Create sent_posts.txt if it doesn't exist
+      - name: Ensure sent_posts.txt exists
+        run: |
+          if [ ! -f sent_posts.txt ]; then
+            touch sent_posts.txt
+            echo "Created sent_posts.txt file"
+          fi
 
       # 5. Run the bot script
       - name: Run the bot
@@ -40,13 +44,16 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bot.py
 
-      # 6. DEBUG: List files to see if sent_posts.txt exists
-      - name: List workspace files
-        run: ls -la
-
-      # 7. Upload the updated 'sent_posts.txt' file for the next run
-      - name: Upload sent posts cache
-        uses: actions/upload-artifact@v4
-        with:
-          name: sent-posts-cache
-          path: sent_posts.txt # Make sure this path is correct
+      # 6. Commit and push the updated sent_posts.txt file
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add sent_posts.txt
+          # Only commit if the file has actually changed
+          if git diff --staged --quiet; then
+            echo "No changes to sent_posts.txt, skipping commit."
+          else
+            git commit -m "bot: update sent_posts.txt"
+            git push
+          fi
