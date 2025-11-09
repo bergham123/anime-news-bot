@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install feedparser beautifulsoup4 requests python-telegram-bot==21.6
+          pip install feedparser beautifulsoup4 python-telegram-bot==21.6
 
       - name: Ensure folders & files
         run: |
@@ -46,6 +46,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "bot: update data, global_index, and sent_videos"
+            git commit -m "bot: update data/, global_index/ and sent_videos.txt"
             git push
           fi
