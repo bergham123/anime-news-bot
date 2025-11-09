@@ -392,20 +392,26 @@ def gi_append_records(new_records: list):
     gi_save_pagination(pag)
     gi_save_stats(total_articles=total, added_today=len(new_records))
 
-def convert_full_to_slim(records: list) -> list:
+
+def convert_full_to_slim(records: list, source_path: str = None) -> list:
     """
-    From daily records (title, description_full, image, categories)
-    to slim search records (no url):
-    - title, image, categories
+    تحويل سجلات اليوم إلى سجلات خفيفة:
+    - title, image, categories, path
     """
     out = []
-    for r in records:
+    for i, r in enumerate(records):
+        path = None
+        if source_path:
+            path = f"{source_path}#{i}"
         out.append({
             "title": r.get("title"),
             "image": r.get("image"),
-            "categories": r.get("categories") or []
+            "categories": r.get("categories") or [],
+            "path": path
         })
     return out
+
+
 
 
 # ====================
@@ -538,8 +544,9 @@ async def run():
         update_year_manifest(today)
 
         # global index (no URL)
-        slim = convert_full_to_slim(added_records)
-        gi_append_records(slim)
+       slim = convert_full_to_slim(added_records, day_path)
+gi_append_records(slim)
+
     else:
         logging.warning("No entries in Crunchyroll feed.")
 
