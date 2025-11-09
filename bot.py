@@ -3,7 +3,6 @@ import os
 import json
 import asyncio
 import logging
-import calendar
 from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -25,13 +24,13 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CRUNCHYROLL_RSS_URL = "https://cr-news-api-service.prd.crunchyrollsvc.com/v1/ar-SA/rss"
 
 # YouTube
-CHANNEL_ID        = "UC1WGYjPeHHc_3nRXqbW3OcQ"
-YOUTUBE_RSS_URL   = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
-YOUTUBE_SENT_FILE = Path("sent_videos.txt")
+CHANNEL_ID         = "UC1WGYjPeHHc_3nRXqbW3OcQ"
+YOUTUBE_RSS_URL    = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
+YOUTUBE_SENT_FILE  = Path("sent_videos.txt")
 
 # Paths
-DATA_BASE    = Path("data")           # data/YYYY/MM/DD-MM.json
-GLOBAL_INDEX = Path("global_index")   # index_1.json, pagination.json, stats.json
+DATA_BASE    = Path("data")            # data/YYYY/MM/DD-MM.json
+GLOBAL_INDEX = Path("global_index")    # index_1.json, pagination.json, stats.json
 
 # Global Index settings
 GLOBAL_PAGE_SIZE = 500
@@ -78,17 +77,47 @@ def save_json_list(path: Path, data: list):
 # ====================
 # RSS extraction helpers
 # ====================
+def extract_full_text(entry) -> str:
+    """
+    يرجع النص الكامل للمقال (بدون HTML):
+    - يفضّل content:encoded (entry.content[0].value)
+    - وإلا يستخدم description
+    - ثم ينظّف كل الوسوم
+    """
+    # 1) content:encoded
+    try:
+        if hasattr(entry, "content") and entry.content and isinstance(entry.content, list):
+            raw = entry.content[0].get("value") or ""
+            if raw:
+                return BeautifulSoup(raw, "html.parser").get_text(separator=" ", strip=True)
+    except Exception:
+        pass
+
+    # 2) description
+    raw = getattr(entry, "description", "") or ""
+    if raw:
+        return BeautifulSoup(raw, "html.parser").get_text(separator=" ", strip=True)
+
+    return ""
+
 def extract_image(entry) -> str | None:
-    # 1) media_thumbnail
+    # 1) media:thumbnail
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         try:
             return entry.media_thumbnail[0].get("url") or entry.media_thumbnail[0]["url"]
         except Exception:
             pass
-    # 2) <img> inside description
-    html = getattr(entry, "description", None)
-    if html:
-        soup = BeautifulSoup(html, "html.parser")
+    # 2) من داخل المحتوى/الوصف
+    raw = ""
+    try:
+        if hasattr(entry, "content") and entry.content and isinstance(entry.content, list):
+            raw = entry.content[0].get("value") or ""
+    except Exception:
+        pass
+    if not raw:
+        raw = getattr(entry, "description", "") or ""
+    if raw:
+        soup = BeautifulSoup(raw, "html.parser")
         img = soup.find("img")
         if img and img.has_attr("src"):
             return img["src"]
@@ -106,15 +135,15 @@ def extract_categories(entry) -> list:
 
 def build_daily_record(entry) -> dict:
     """
-    نسخة مخفّضة لملف اليوم كما طلبت:
+    سجل اليوم كما طلبت:
     - title
-    - description_full (HTML كامل)
+    - description_full: النص الكامل بلا HTML (من content:encoded إن وُجد)
     - image
     - categories
-    (لا id, لا author, لا published, لا language, لا url)
+    (بدون id/author/published/language/url)
     """
     title = getattr(entry, "title", "") or ""
-    description_full = getattr(entry, "description", "") or ""   # HTML as-is
+    description_full = extract_full_text(entry)
     image = extract_image(entry)
     categories = extract_categories(entry)
     return {
@@ -126,9 +155,8 @@ def build_daily_record(entry) -> dict:
 
 def get_entry_identity(entry) -> tuple[str, str | None]:
     """
-    نعيد عناصر يمكن استخدامها كبصمة منع تكرار دون تخزينها:
-    - title
-    - image
+    بصمة منع التكرار: (title + image)
+    لا نخزّنها في الملف، تُستخدم فقط للمقارنة.
     """
     title = getattr(entry, "title", "") or ""
     image = extract_image(entry)
@@ -308,28 +336,40 @@ def convert_full_to_slim(records: list) -> list:
 # ====================
 async def send_crunchyroll_album(bot: telegram.Bot, added_records: list):
     """
-    أرسل حتى 4 عناصر جديدة كألبوم صور (عنوان + صورة فقط)، بدون روابط.
-    إذا لم تتوفر صور، أرسل قائمة نصية بالعناوين.
+    أرسل حتى 4 عناصر جديدة:
+    - >=2 صور: ألبوم صور (media group) كل صورة مع عنوانها
+    - 1 صورة: صورة واحدة مع العنوان
+    - 0 صور: قائمة نصية بالعناوين
+    (بدون روابط)
     """
     if not added_records:
         return
 
-    # الحقول لا تحتوي على published بعد الآن؛ نعتمد ترتيب الجلب (feed عادةً أحدث أولاً)
     candidates = added_records[:4]
 
+    # جهّز الصور
     photos = []
     for rec in candidates:
         if rec.get("image"):
             photos.append(InputMediaPhoto(media=rec["image"], caption=(rec.get("title") or "")))
 
-    if photos:
+    # >= 2 صور → ألبوم
+    if len(photos) >= 2:
         try:
             await bot.send_media_group(chat_id=TELEGRAM_CHAT_ID, media=photos)
             return
         except Exception as e:
             logging.error(f"send_media_group failed: {e}")
 
-    # Fallback: نص فقط
+    # صورة واحدة فقط
+    if len(photos) == 1:
+        try:
+            await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=photos[0].media, caption=photos[0].caption)
+            return
+        except Exception as e:
+            logging.error(f"send_photo failed: {e}")
+
+    # بدون صور → نص
     lines = [f"• {rec.get('title')}" for rec in candidates]
     text = "📰 أحدث أخبار الأنمي من Crunchyroll\n\n" + "\n".join(lines)
     await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
