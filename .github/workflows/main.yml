@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_FOR_COMMIT }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -55,5 +55,6 @@ jobs:
 
           git commit -m "bot: update data/, global_index/ and state files"
 
+          # Rebase in case remote got new commits
           git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
           git push origin HEAD:"$GITHUB_REF_NAME"
