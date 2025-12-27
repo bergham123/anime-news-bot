@@ -1,4 +1,3 @@
-# bot.py
 import os
 import json
 import asyncio
@@ -12,7 +11,6 @@ from bs4 import BeautifulSoup
 
 # Telegram
 import telegram
-from telegram import InputMediaPhoto
 
 # Pillow + HTTP
 from PIL import Image, ImageOps
@@ -33,7 +31,10 @@ CRUNCHYROLL_RSS_URL = "https://cr-news-api-service.prd.crunchyrollsvc.com/v1/ar-
 # YouTube
 CHANNEL_ID         = "UC1WGYjPeHHc_3nRXqbW3OcQ"
 YOUTUBE_RSS_URL    = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
-YOUTUBE_SENT_FILE  = Path("sent_videos.txt")
+
+# State files (latest only logic)
+CRUNCHYROLL_LAST_FP_FILE = Path("last_crunchyroll_fp.txt")
+YOUTUBE_LAST_ID_FILE     = Path("last_youtube_id.txt")
 
 # Paths
 DATA_BASE    = Path("data")            # data/YYYY/MM/DD-MM.json
@@ -71,7 +72,6 @@ def daily_path(dt: datetime) -> Path:
     y, m, d = dt.year, dt.month, dt.day
     out_dir = DATA_BASE / f"{y}" / f"{m:02d}"
     ensure_dir(out_dir)
-    # Example: data/2025/11/09-11.json
     return out_dir / f"{d:02d}-{m:02d}.json"
 
 def load_json_list(path: Path) -> list:
@@ -90,6 +90,21 @@ def save_json_list(path: Path, data: list):
         ensure_dir(path.parent)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"Failed writing {path}: {e}")
+
+def read_text_file(path: Path) -> str | None:
+    try:
+        if not path.exists():
+            return None
+        s = path.read_text(encoding="utf-8").strip()
+        return s or None
+    except Exception:
+        return None
+
+def write_text_file(path: Path, value: str):
+    try:
+        path.write_text((value or "").strip() + "\n", encoding="utf-8")
     except Exception as e:
         logging.error(f"Failed writing {path}: {e}")
 
@@ -152,7 +167,7 @@ def extract_categories(entry) -> list:
 
 def build_daily_record(entry) -> dict:
     """
-    Daily record (no id/author/published/language/url):
+    Daily record:
     - title
     - description_full (plain text, full)
     - image
@@ -247,33 +262,28 @@ def process_image_with_logo(url: str) -> BytesIO | None:
 
 
 # ====================
-# Persist Daily (Crunchyroll)
+# Persist Daily (Crunchyroll) - ONLY ONE
 # ====================
-def save_full_news_of_today(entries):
+def save_single_news(entry):
     """
-    Build today's records (no id/author/published/language/url).
-    Dedup by (title + image).
-    Return (added_records, day_path_str).
+    Save ONLY 1 entry to today's JSON.
+    Dedup by (title + image) inside today's file.
+    Return (record_or_none, day_path_str).
     """
     today = now_local()
     path = daily_path(today)
     existing = load_json_list(path)
 
+    fp = get_entry_identity(entry)
     existing_fp = {f"{(x.get('title') or '').strip()}|{(x.get('image') or '').strip()}" for x in existing}
 
-    added = []
-    for e in entries:
-        fp = get_entry_identity(e)
-        if fp in existing_fp:
-            continue
-        rec = build_daily_record(e)
-        existing.append(rec)
-        added.append(rec)
-        existing_fp.add(fp)
+    if fp in existing_fp:
+        return None, str(path)
 
-    if added:
-        save_json_list(path, existing)
-    return added, str(path)
+    rec = build_daily_record(entry)
+    existing.append(rec)
+    save_json_list(path, existing)
+    return rec, str(path)
 
 
 # ====================
@@ -321,9 +331,6 @@ def update_year_manifest(dt: datetime):
 
 # ====================
 # Global Index (pagination + stats)
-#   - Split every 500 items: index_1.json, index_2.json, ...
-#   - pagination.json: { total_articles, files: ["index_1.json", ...] }
-#   - stats.json: { total_articles, added_today, last_update }
 # ====================
 def gi_paths():
     ensure_dir(GLOBAL_INDEX)
@@ -356,6 +363,9 @@ def gi_save_stats(total_articles: int, added_today: int):
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
 
+def load_json_list_simple(path: Path) -> list:
+    return load_json_list(path)
+
 def convert_full_to_slim(records: list, source_path: str = None) -> list:
     """
     From daily records to slim records for global index:
@@ -373,28 +383,20 @@ def convert_full_to_slim(records: list, source_path: str = None) -> list:
     return out
 
 def gi_append_records(new_records: list):
-    """
-    Append slim records into global index with pagination support.
-    - Create/rotate index_N.json files at GLOBAL_PAGE_SIZE
-    - Update pagination.json and stats.json
-    """
     if not new_records:
         return
 
-    pag = gi_load_pagination()  # {"total_articles": int, "files": [ .. ]}
+    pag = gi_load_pagination()
 
-    # Ensure first index file exists
     if not pag["files"]:
         first = GLOBAL_INDEX / "index_1.json"
         save_json_list(first, [])
         pag["files"].append("index_1.json")
 
-    # Open current file
     current_filename = pag["files"][-1]
     current_file = GLOBAL_INDEX / current_filename
-    items = load_json_list(current_file)
+    items = load_json_list_simple(current_file)
 
-    # If current file is full, rotate to a new one
     if len(items) >= GLOBAL_PAGE_SIZE:
         next_idx = len(pag["files"]) + 1
         current_filename = f"index_{next_idx}.json"
@@ -403,15 +405,12 @@ def gi_append_records(new_records: list):
         pag["files"].append(current_filename)
         items = []
 
-    # Append new records to current page
     items.extend(new_records)
     save_json_list(current_file, items)
 
-    # Update counters
     total = (pag.get("total_articles") or 0) + len(new_records)
     pag["total_articles"] = total
 
-    # Persist pagination.json & stats.json
     gi_save_pagination(pag)
     gi_save_stats(total_articles=total, added_today=len(new_records))
 
@@ -419,86 +418,58 @@ def gi_append_records(new_records: list):
 # ====================
 # Telegram Senders
 # ====================
-async def send_crunchyroll_album(bot: telegram.Bot, added_records: list):
-    """
-    Send up to 4 new items:
-    - >=2 images: media group (album) with logo
-    - 1 image: a single photo with logo
-    - 0 images: text list of titles
-    (no links)
-    """
-    if not added_records:
-        return
+async def send_crunchyroll_one(bot: telegram.Bot, entry):
+    rec = build_daily_record(entry)
+    title = rec.get("title") or ""
+    img_url = rec.get("image")
 
-    candidates = added_records[:4]
-    media_list = []
-
-    for rec in candidates:
-        img_url = rec.get("image")
-        title   = rec.get("title") or ""
-        if not img_url:
-            continue
-
+    if img_url:
         processed = process_image_with_logo(img_url)
-        if processed:
-            media_list.append(InputMediaPhoto(media=processed, caption=title))
-        else:
-            media_list.append(InputMediaPhoto(media=img_url, caption=title))
-
-        if len(media_list) >= 4:
-            break
-
-    if len(media_list) >= 2:
         try:
-            await bot.send_media_group(chat_id=TELEGRAM_CHAT_ID, media=media_list)
+            if processed:
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=processed, caption=title)
+            else:
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=img_url, caption=title)
             return
         except Exception as e:
-            logging.error(f"send_media_group failed: {e}")
+            logging.error(f"Failed to send Crunchyroll photo: {e}")
 
-    if len(media_list) == 1:
-        try:
-            await bot.send_photo(chat_id=TELEGRAM_CHAT_ID,
-                                 photo=media_list[0].media,
-                                 caption=media_list[0].caption)
-            return
-        except Exception as e:
-            logging.error(f"send_photo(single) failed: {e}")
+    desc = rec.get("description_full") or ""
+    text = f"📰 خبر جديد\n\n{title}"
+    if desc:
+        text += "\n\n" + (desc[:800] + "…" if len(desc) > 800 else desc)
 
-    # No images → text only fallback
-    lines = [f"• {rec.get('title')}" for rec in candidates]
-    text = "📰 أحدث أخبار الأنمي\n\n" + "\n".join(lines)
     await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
 
 
-async def send_youtube_if_new(bot: telegram.Bot):
+async def send_youtube_latest_if_new(bot: telegram.Bot):
     """
-    Send latest YouTube video if new:
-    - no data/ storage
-    - prepend id to sent_videos.txt
+    Same logic as Crunchyroll:
+    - Take ONLY the latest video (feed.entries[0])
+    - If its id == last saved id -> do nothing
+    - Else send and write last id
     """
     feed = feedparser.parse(YOUTUBE_RSS_URL)
     if not feed.entries:
         return
 
     entry = feed.entries[0]
-    vid = getattr(entry, "yt_videoid", None) or getattr(entry, "id", None)
-    title = getattr(entry, "title", "")
-    url   = getattr(entry, "link", "")
+
+    vid = getattr(entry, "yt_videoid", None) or getattr(entry, "id", None) or ""
+    title = getattr(entry, "title", "") or ""
+    url   = getattr(entry, "link", "") or ""
+
+    last_vid = read_text_file(YOUTUBE_LAST_ID_FILE)
+    if last_vid and vid and vid == last_vid:
+        logging.info("YT: latest already sent. Skip.")
+        return
+
     thumb = None
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         thumb = entry.media_thumbnail[0].get("url")
 
-    if not YOUTUBE_SENT_FILE.exists():
-        YOUTUBE_SENT_FILE.write_text("", encoding="utf-8")
-        last = None
-    else:
-        with open(YOUTUBE_SENT_FILE, "r", encoding="utf-8") as f:
-            last = f.readline().strip() or None
-
-    if last and vid and vid == last:
-        return
-
     caption = f"🎥 {title}\n{url}"
+
     try:
         if thumb:
             await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=thumb, caption=caption)
@@ -508,17 +479,8 @@ async def send_youtube_if_new(bot: telegram.Bot):
         logging.error(f"Failed to send YouTube: {e}")
         return
 
-    # prepend id for next runs
-    try:
-        old = ""
-        if YOUTUBE_SENT_FILE.exists():
-            old = YOUTUBE_SENT_FILE.read_text(encoding="utf-8")
-        with open(YOUTUBE_SENT_FILE, "w", encoding="utf-8") as f:
-            f.write((vid or "") + "\n")
-            if old:
-                f.write(old)
-    except Exception as e:
-        logging.error(f"Failed updating {YOUTUBE_SENT_FILE}: {e}")
+    write_text_file(YOUTUBE_LAST_ID_FILE, vid)
+    logging.info("YT: sent latest & saved id.")
 
 
 # ====================
@@ -531,28 +493,40 @@ async def run():
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-    # 1) Crunchyroll: fetch, save today, send 4 max, update manifests & global index
+    # 1) Crunchyroll: ONLY latest entry, ONLY if new -> send + save + index
     news_feed = feedparser.parse(CRUNCHYROLL_RSS_URL)
     if news_feed.entries:
-        added_records, day_path = save_full_news_of_today(news_feed.entries)
-        logging.info(f"Crun: added {len(added_records)} new record(s) to {day_path}")
+        latest = news_feed.entries[0]
+        fp = get_entry_identity(latest)
 
-        # Send up to 4 new items (title + image with logo)
-        await send_crunchyroll_album(bot, added_records)
+        last_fp = read_text_file(CRUNCHYROLL_LAST_FP_FILE)
+        if last_fp and fp == last_fp:
+            logging.info("Crun: latest already processed/sent. Skip.")
+        else:
+            rec, day_path = save_single_news(latest)
 
-        # Update manifests
-        today = now_local()
-        update_month_manifest(today)
-        update_year_manifest(today)
+            # إذا تزاد فعلاً (ماشي مكرر فملف اليوم)
+            if rec is not None:
+                await send_crunchyroll_one(bot, latest)
 
-        # Update global_index (slim records with path)
-        slim = convert_full_to_slim(added_records, day_path)
-        gi_append_records(slim)
+                today = now_local()
+                update_month_manifest(today)
+                update_year_manifest(today)
+
+                slim = convert_full_to_slim([rec], day_path)
+                gi_append_records(slim)
+
+                write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
+                logging.info("Crun: sent & saved ONLY latest once.")
+            else:
+                # كان نفسو داخل data ديال اليوم، باش ما يعاودش يبقى كيجرب يرسلو
+                write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
+                logging.info("Crun: latest already in today's data; marked fp to avoid resend.")
     else:
         logging.warning("No entries in Crunchyroll feed.")
 
-    # 2) YouTube (send-only, save ID)
-    await send_youtube_if_new(bot)
+    # 2) YouTube: ONLY latest video, ONLY if new
+    await send_youtube_latest_if_new(bot)
 
 
 if __name__ == "__main__":
