@@ -31,7 +31,8 @@ jobs:
         run: |
           mkdir -p data
           mkdir -p global_index
-          touch sent_videos.txt
+          touch last_crunchyroll_fp.txt
+          touch last_youtube_id.txt
 
       - name: Run bot
         env:
@@ -52,8 +53,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "bot: update data/, global_index/ and sent_videos.txt"
+          git commit -m "bot: update data/, global_index/ and state files"
 
-          # Rebase in case remote got new commits
           git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
           git push origin HEAD:"$GITHUB_REF_NAME"
