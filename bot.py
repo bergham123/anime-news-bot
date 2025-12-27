@@ -29,10 +29,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CRUNCHYROLL_RSS_URL = "https://cr-news-api-service.prd.crunchyrollsvc.com/v1/ar-SA/rss"
 
 # YouTube
-CHANNEL_ID         = "UC1WGYjPeHHc_3nRXqbW3OcQ"
-YOUTUBE_RSS_URL    = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
+CHANNEL_ID      = "UC1WGYjPeHHc_3nRXqbW3OcQ"
+YOUTUBE_RSS_URL = f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNEL_ID}"
 
-# State files (latest only logic)
+# State files (latest-only)
 CRUNCHYROLL_LAST_FP_FILE = Path("last_crunchyroll_fp.txt")
 YOUTUBE_LAST_ID_FILE     = Path("last_youtube_id.txt")
 
@@ -169,7 +169,7 @@ def build_daily_record(entry) -> dict:
     """
     Daily record:
     - title
-    - description_full (plain text, full)
+    - description_full (plain text)
     - image
     - categories
     """
@@ -228,7 +228,7 @@ def overlay_logo(im: Image.Image) -> Image.Image:
         logging.error(f"Failed to open logo: {e}")
         return im
 
-    pw, ph = im.size
+    pw, _ = im.size
     lw_ratio = LOGO_MIN_WIDTH_RATIO if pw < 600 else LOGO_MAX_WIDTH_RATIO
     lw = int(max(1, min(pw - 2 * LOGO_MARGIN, pw * lw_ratio)))
     ratio = lw / logo.width
@@ -244,7 +244,7 @@ def process_image_with_logo(url: str) -> BytesIO | None:
     """
     - download
     - exif transpose
-    - smart downscale
+    - downscale
     - overlay logo
     - export JPEG
     """
@@ -267,7 +267,7 @@ def process_image_with_logo(url: str) -> BytesIO | None:
 def save_single_news(entry):
     """
     Save ONLY 1 entry to today's JSON.
-    Dedup by (title + image) inside today's file.
+    Dedup by (title + image) within today's file.
     Return (record_or_none, day_path_str).
     """
     today = now_local()
@@ -363,13 +363,10 @@ def gi_save_stats(total_articles: int, added_today: int):
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
 
-def load_json_list_simple(path: Path) -> list:
-    return load_json_list(path)
-
 def convert_full_to_slim(records: list, source_path: str = None) -> list:
     """
     From daily records to slim records for global index:
-    Keep: title, image, categories, path (points to data/YYYY/MM/DD-MM.json#idx)
+    Keep: title, image, categories, path (data/...json#idx)
     """
     out = []
     for i, r in enumerate(records):
@@ -395,7 +392,7 @@ def gi_append_records(new_records: list):
 
     current_filename = pag["files"][-1]
     current_file = GLOBAL_INDEX / current_filename
-    items = load_json_list_simple(current_file)
+    items = load_json_list(current_file)
 
     if len(items) >= GLOBAL_PAGE_SIZE:
         next_idx = len(pag["files"]) + 1
@@ -444,17 +441,15 @@ async def send_crunchyroll_one(bot: telegram.Bot, entry):
 
 async def send_youtube_latest_if_new(bot: telegram.Bot):
     """
-    Same logic as Crunchyroll:
-    - Take ONLY the latest video (feed.entries[0])
-    - If its id == last saved id -> do nothing
-    - Else send and write last id
+    ONLY latest video:
+    - if vid == last saved -> skip
+    - else send & write last id
     """
     feed = feedparser.parse(YOUTUBE_RSS_URL)
     if not feed.entries:
         return
 
     entry = feed.entries[0]
-
     vid = getattr(entry, "yt_videoid", None) or getattr(entry, "id", None) or ""
     title = getattr(entry, "title", "") or ""
     url   = getattr(entry, "link", "") or ""
@@ -469,7 +464,6 @@ async def send_youtube_latest_if_new(bot: telegram.Bot):
         thumb = entry.media_thumbnail[0].get("url")
 
     caption = f"🎥 {title}\n{url}"
-
     try:
         if thumb:
             await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=thumb, caption=caption)
@@ -493,7 +487,7 @@ async def run():
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-    # 1) Crunchyroll: ONLY latest entry, ONLY if new -> send + save + index
+    # 1) Crunchyroll: ONLY latest, ONLY if new -> send + save + index
     news_feed = feedparser.parse(CRUNCHYROLL_RSS_URL)
     if news_feed.entries:
         latest = news_feed.entries[0]
@@ -505,7 +499,6 @@ async def run():
         else:
             rec, day_path = save_single_news(latest)
 
-            # إذا تزاد فعلاً (ماشي مكرر فملف اليوم)
             if rec is not None:
                 await send_crunchyroll_one(bot, latest)
 
@@ -519,13 +512,13 @@ async def run():
                 write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
                 logging.info("Crun: sent & saved ONLY latest once.")
             else:
-                # كان نفسو داخل data ديال اليوم، باش ما يعاودش يبقى كيجرب يرسلو
+                # already in today's data, but still mark fp to prevent resend loop
                 write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
                 logging.info("Crun: latest already in today's data; marked fp to avoid resend.")
     else:
         logging.warning("No entries in Crunchyroll feed.")
 
-    # 2) YouTube: ONLY latest video, ONLY if new
+    # 2) YouTube: ONLY latest, ONLY if new
     await send_youtube_latest_if_new(bot)
 
 
