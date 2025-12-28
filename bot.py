@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from io import BytesIO
+from urllib.parse import quote
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -30,6 +31,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 # Same repo (fixed)
 GITHUB_REPO_SLUG   = "bergham123/anime-news-bot"
 GITHUB_REPO_BRANCH = "main"
+
+# Your GitHub Pages site
+SITE_BASE_URL = "https://bergham123.github.io/anime-news-bot"
+ARTICLE_PAGE  = "article.html"
 
 # Sources
 CRUNCHYROLL_RSS_URL = "https://cr-news-api-service.prd.crunchyrollsvc.com/v1/ar-SA/rss"
@@ -62,6 +67,9 @@ MAX_IMAGE_HEIGHT = 1280
 JPEG_QUALITY     = 85
 WEBP_QUALITY     = 85
 HTTP_TIMEOUT     = 25
+
+# Telegram caption limits safety
+TG_CAPTION_DESC_LIMIT = 350  # keep it short so link fits
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -119,16 +127,11 @@ def write_text_file(path: Path, value: str):
 def slugify(text: str, max_len: int = 60) -> str:
     text = (text or "").strip().lower()
     text = re.sub(r"\s+", "-", text)
-    # keep arabic + latin + numbers + dash
     text = re.sub(r"[^a-z0-9\u0600-\u06FF\-]+", "", text)
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text[:max_len] if text else "image"
 
 def stable_image_filename(title: str, original_url: str) -> str:
-    """
-    Stable filename based ONLY on hash(title + original_url).
-    No datetime => same item => same filename forever.
-    """
     base = slugify(title)
     key = f"{(title or '').strip()}|{(original_url or '').strip()}"
     h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
@@ -136,6 +139,16 @@ def stable_image_filename(title: str, original_url: str) -> str:
 
 def build_raw_github_url(rel_path: str) -> str:
     return f"https://raw.githubusercontent.com/{GITHUB_REPO_SLUG}/{GITHUB_REPO_BRANCH}/{rel_path}"
+
+def build_article_url(day_path: str, idx: int) -> str:
+    """
+    day_path example: data/2025/11/09-11.json
+    idx example: 0
+    output: https://.../article.html?path=data%2F...%230
+    """
+    raw = f"{day_path}#{idx}"
+    encoded = quote(raw, safe="")  # encode everything
+    return f"{SITE_BASE_URL}/{ARTICLE_PAGE}?path={encoded}"
 
 
 # ====================
@@ -277,11 +290,6 @@ def process_image_with_logo(url: str, out_format: str = "JPEG") -> BytesIO | Non
     return out
 
 def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str, bool]:
-    """
-    Saves webp into images/YYYY/MM/ using stable filename (hash only).
-    Returns: (rel_path, raw_url, created_new_file)
-      - created_new_file=False if file already existed
-    """
     y, m = dt.year, dt.month
     out_dir = IMAGES_DIR / f"{y}" / f"{m:02d}"
     ensure_dir(out_dir)
@@ -303,6 +311,9 @@ def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: 
 # Persist Daily (Crunchyroll) - ONLY ONE
 # ====================
 def save_single_news(entry):
+    """
+    Return (record_or_none, day_path_str, idx_or_none)
+    """
     today = now_local()
     path = daily_path(today)
     existing = load_json_list(path)
@@ -310,12 +321,14 @@ def save_single_news(entry):
     fp = get_entry_identity(entry)
     existing_fp = {f"{(x.get('title') or '').strip()}|{(x.get('image') or '').strip()}" for x in existing}
     if fp in existing_fp:
-        return None, str(path)
+        return None, str(path), None
 
     rec = build_daily_record(entry)
     existing.append(rec)
     save_json_list(path, existing)
-    return rec, str(path)
+
+    idx = len(existing) - 1
+    return rec, str(path), idx
 
 
 # ====================
@@ -331,7 +344,7 @@ def update_month_manifest(dt: datetime):
     for p in sorted(month_dir.glob("*.json")):
         if p.name == "month_manifest.json":
             continue
-        day_key = p.stem  # "DD-MM"
+        day_key = p.stem
         days[day_key.split("-")[0]] = str(p.as_posix())
 
     manifest = {
@@ -443,28 +456,35 @@ def gi_append_records(new_records: list):
 # ====================
 # Telegram Senders
 # ====================
-async def send_crunchyroll_one(bot: telegram.Bot, entry):
+async def send_crunchyroll_one(bot: telegram.Bot, entry, article_url: str | None = None):
     rec = build_daily_record(entry)
     title = rec.get("title") or ""
     img_url = rec.get("image")
+
+    desc = rec.get("description_full") or ""
+    short_desc = ""
+    if desc:
+        short_desc = desc[:TG_CAPTION_DESC_LIMIT] + ("…" if len(desc) > TG_CAPTION_DESC_LIMIT else "")
+
+    caption = title
+    if short_desc:
+        caption += "\n\n" + short_desc
+    if article_url:
+        caption += "\n\n🔗 اقرأ المزيد:\n" + article_url
 
     if img_url:
         processed_jpg = process_image_with_logo(img_url, out_format="JPEG")
         try:
             if processed_jpg:
-                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=processed_jpg, caption=title)
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=processed_jpg, caption=caption)
             else:
-                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=img_url, caption=title)
+                await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=img_url, caption=caption)
             return
         except Exception as e:
             logging.error(f"Failed to send Crunchyroll photo: {e}")
 
-    desc = rec.get("description_full") or ""
-    text = f"📰 خبر جديد\n\n{title}"
-    if desc:
-        text += "\n\n" + (desc[:800] + "…" if len(desc) > 800 else desc)
+    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="📰 خبر جديد\n\n" + caption)
 
-    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=text)
 
 async def send_youtube_latest_if_new(bot: telegram.Bot):
     feed = feedparser.parse(YOUTUBE_RSS_URL)
@@ -519,11 +539,14 @@ async def run():
         if last_fp and fp == last_fp:
             logging.info("Crun: latest already processed/sent. Skip.")
         else:
-            rec, day_path_str = save_single_news(latest)
+            rec, day_path_str, idx = save_single_news(latest)
 
             if rec is not None:
-                # Send to Telegram
-                await send_crunchyroll_one(bot, latest)
+                # Build pages link (data/...#idx)
+                article_url = build_article_url(day_path_str, idx if idx is not None else 0)
+
+                # Send to Telegram with link
+                await send_crunchyroll_one(bot, latest, article_url=article_url)
 
                 # Make WebP, save into same repo (stable filename), replace rec["image"]
                 img_url = rec.get("image")
@@ -547,7 +570,11 @@ async def run():
                 day_path = Path(day_path_str)
                 day_records = load_json_list(day_path)
                 if day_records:
-                    day_records[-1] = rec  # last appended
+                    # idx should be last item, but use idx safely
+                    if idx is not None and 0 <= idx < len(day_records):
+                        day_records[idx] = rec
+                    else:
+                        day_records[-1] = rec
                     save_json_list(day_path, day_records)
 
                 # manifests + global index (will use rec with updated image URL)
