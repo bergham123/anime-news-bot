@@ -1,12 +1,3 @@
-// Admin editor for JSON files inside: bergham123/anime-news-bot (branch main by default)
-//
-// Features:
-// - Load JSON file (array of articles)
-// - List + search + select
-// - Edit fields + extra fields: youtube_url, html_content, other_images[]
-// - Convert & upload image as WEBP to repo (images/YYYY/MM/...) and set image URL
-// - Commit updated JSON back to repo using GitHub Contents API
-
 const OWNER = "bergham123";
 const REPO  = "anime-news-bot";
 
@@ -17,7 +8,8 @@ let state = {
   originalText: "",
   data: [],
   filteredIdxs: [],
-  selectedIndex: -1, // index in state.data
+  selectedIndex: -1,
+  tinymceReady: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -63,7 +55,7 @@ async function ghGetFile(path, branch) {
     const txt = await r.text();
     throw new Error(`GET failed (${r.status}): ${txt.slice(0, 300)}`);
   }
-  return await r.json(); // {content, sha, encoding...}
+  return await r.json();
 }
 
 async function ghPutFile(path, branch, message, contentText, sha) {
@@ -73,9 +65,9 @@ async function ghPutFile(path, branch, message, contentText, sha) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`;
   const body = {
     message,
-    content: btoa(unescape(encodeURIComponent(contentText))), // base64 utf-8
+    content: btoa(unescape(encodeURIComponent(contentText))),
     branch,
-    sha, // required when updating existing file
+    sha,
   };
 
   const r = await fetch(url, {
@@ -97,7 +89,6 @@ async function ghPutFile(path, branch, message, contentText, sha) {
 }
 
 function normalizeArticle(a) {
-  // Keep your existing fields + add optional extra ones
   return {
     title: a.title ?? "",
     description_full: a.description_full ?? "",
@@ -105,7 +96,6 @@ function normalizeArticle(a) {
     categories: Array.isArray(a.categories) ? a.categories : [],
     time: a.time ?? a.published_time ?? a.date ?? "",
 
-    // extra admin fields
     youtube_url: a.youtube_url ?? "",
     html_content: a.html_content ?? "",
     other_images: Array.isArray(a.other_images) ? a.other_images : [],
@@ -113,10 +103,68 @@ function normalizeArticle(a) {
 }
 
 function serializeData() {
-  // Keep output clean (no undefined)
   return JSON.stringify(state.data, null, 2);
 }
 
+// -------------------------
+// TinyMCE init
+// -------------------------
+function initTinyMCE() {
+  if (!window.tinymce) {
+    setStatus("TinyMCE not loaded. Check network / CDN.", false);
+    return;
+  }
+
+  tinymce.init({
+    selector: "textarea#html",
+    height: 360,
+    menubar: true,
+    branding: false,
+
+    plugins: "lists link image media table code fullscreen autoresize",
+    toolbar:
+      "undo redo | blocks | bold italic underline strikethrough | " +
+      "alignleft aligncenter alignright | bullist numlist | " +
+      "link image media table | code fullscreen",
+
+    // Allow iframe embeds (YouTube etc.)
+    extended_valid_elements:
+      "iframe[src|frameborder|style|scrolling|class|width|height|name|align|allow|allowfullscreen]," +
+      "script[src|type]," +
+      "div[*],span[*],p[*],h1[*],h2[*],h3[*],h4[*],h5[*],h6[*]",
+
+    media_live_embeds: true,
+
+    setup: (editor) => {
+      editor.on("init", () => {
+        state.tinymceReady = true;
+        // if an article is selected, push its content into the editor
+        if (state.selectedIndex >= 0) {
+          editor.setContent(state.data[state.selectedIndex].html_content || "");
+        }
+      });
+    }
+  });
+}
+
+function getTinyContent() {
+  if (state.tinymceReady && tinymce.get("html")) {
+    return tinymce.get("html").getContent() || "";
+  }
+  return $("html").value || "";
+}
+
+function setTinyContent(html) {
+  if (state.tinymceReady && tinymce.get("html")) {
+    tinymce.get("html").setContent(html || "");
+  } else {
+    $("html").value = html || "";
+  }
+}
+
+// -------------------------
+// UI render/search
+// -------------------------
 function applySearch() {
   const q = $("search").value.trim().toLowerCase();
   const idxs = [];
@@ -159,7 +207,7 @@ function selectArticle(i) {
   $("image").value = a.image || "";
 
   $("yt").value    = a.youtube_url || "";
-  $("html").value  = a.html_content || "";
+  setTinyContent(a.html_content || "");
   $("others").value = (a.other_images || []).join("\n");
 
   updatePreview();
@@ -168,8 +216,7 @@ function selectArticle(i) {
 
 function updatePreview() {
   const url = $("image").value.trim();
-  const img = $("imgPreview");
-  img.src = url || "";
+  $("imgPreview").src = url || "";
 }
 
 function saveLocalFromForm() {
@@ -187,7 +234,7 @@ function saveLocalFromForm() {
   a.image = $("image").value.trim();
 
   a.youtube_url = $("yt").value.trim();
-  a.html_content = $("html").value.trim();
+  a.html_content = getTinyContent();
   a.other_images = $("others").value
     .split("\n")
     .map(s => s.trim())
@@ -228,12 +275,10 @@ function deleteSelected() {
 }
 
 // -------------------------
-// WebP conversion + upload
+// WebP upload to repo (unchanged)
 // -------------------------
 async function fileToWebPBlob(file, quality = 0.85) {
-  // Convert any image file -> webp using canvas
   const img = new Image();
-  img.crossOrigin = "anonymous";
   const url = URL.createObjectURL(file);
 
   await new Promise((res, rej) => {
@@ -255,18 +300,19 @@ async function fileToWebPBlob(file, quality = 0.85) {
   return blob;
 }
 
-function sha1Hex(str) {
-  // Browser subtle crypto sha-1
+async function sha1Hex(str) {
   const enc = new TextEncoder().encode(str);
-  return crypto.subtle.digest("SHA-1", enc).then(buf =>
-    Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("")
-  );
+  const buf = await crypto.subtle.digest("SHA-1", enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function uploadWebPToRepo(webpBlob, folderBase) {
   if (state.selectedIndex < 0) throw new Error("Select an article first.");
 
+  // Save current form first to make sure title/original are up to date
+  saveLocalFromForm();
   const a = state.data[state.selectedIndex];
+
   const title = a.title || "image";
   const originalImage = a.image || "";
 
@@ -285,17 +331,15 @@ async function uploadWebPToRepo(webpBlob, folderBase) {
 
   const relPath = `${folderBase}/${yyyy}/${mm}/${safeTitle}-${h}.webp`;
 
-  // Check if file exists (GET). If exists, just set URL.
+  // If exists, just use it
   try {
-    const info = await ghGetFile(relPath, state.branch);
+    await ghGetFile(relPath, state.branch);
     const url = rawUrlFor(relPath);
     $("image").value = url;
     saveLocalFromForm();
     setStatus(`Image already exists. Using: ${relPath}`);
     return;
-  } catch (e) {
-    // likely 404 -> proceed upload
-  }
+  } catch (_) {}
 
   const arrayBuf = await webpBlob.arrayBuffer();
   const bytes = new Uint8Array(arrayBuf);
@@ -303,7 +347,6 @@ async function uploadWebPToRepo(webpBlob, folderBase) {
   for (let i=0;i<bytes.length;i++) binary += String.fromCharCode(bytes[i]);
   const b64 = btoa(binary);
 
-  // Create new file (sha omitted)
   const token = getToken();
   if (!token) throw new Error("Token is required.");
 
@@ -372,15 +415,13 @@ async function loadJson() {
 
 async function commitJson() {
   try {
-    saveLocalFromForm(); // ensure form -> state
-
+    saveLocalFromForm();
     const newText = serializeData();
     const msg = `Admin update: ${state.filePath}`;
 
     setStatus("Committing to GitHub...", true);
     const res = await ghPutFile(state.filePath, state.branch, msg, newText, state.sha);
 
-    // refresh sha after commit
     state.sha = res.content?.sha || state.sha;
     state.originalText = newText;
 
@@ -433,5 +474,8 @@ $("imgFile").addEventListener("change", async (ev) => {
   }
 });
 
-// helpful default
-setStatus("Ready. Put token, choose file path, click Load JSON.");
+// Init TinyMCE once the page loads
+window.addEventListener("load", () => {
+  initTinyMCE();
+  setStatus("Ready. Put token, choose file path, click Load JSON.");
+});
