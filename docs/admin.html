@@ -34,10 +34,10 @@
     .small{font-size:11px}
     .hr{height:1px;background:var(--b);margin:12px 0}
     .tinywrap{border:1px solid var(--b); border-radius:12px; overflow:hidden; background:#fff}
+    code{background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:2px 6px}
   </style>
 
-  <!-- TinyMCE Cloud CDN -->
-  <!-- You can keep "no-api-key" but it may show warnings; better to use your free API key. -->
+  <!-- TinyMCE -->
   <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/8/tinymce.min.js" referrerpolicy="origin"></script>
 </head>
 
@@ -45,8 +45,8 @@
   <div class="wrap">
     <h2 style="margin:0 0 10px">Admin — Edit JSON in Repo</h2>
     <div class="mut">
-      كتعدّل JSON فـ نفس الريبو وكتعمل commit عبر GitHub API (Token مطلوب).
-      TinyMCE من CDN ممكن يطلب API key باش يحيد التحذير. :contentReference[oaicite:1]{index=1}
+      كتحمّل JSON من الريبو، كتعدّل، ومن بعد كتعمل commit عبر GitHub API.
+      دابا كيدير <b>id</b> + <b>created_at</b> + <b>updated_at</b> تلقائياً.
     </div>
 
     <div class="card" style="margin-top:12px">
@@ -67,7 +67,7 @@
         <div>
           <label>JSON file path inside repo</label>
           <input id="path" value="data/2025/12/28-12.json" />
-          <div class="mut small">مثال: data/2025/12/28-12.json أو global_index/index_1.json</div>
+          <div class="mut small">مثال: <code>data/2025/12/28-12.json</code> أو <code>global_index/index_1.json</code></div>
         </div>
         <div class="btns" style="align-items:end">
           <button id="loadBtn" class="primary">Load JSON</button>
@@ -90,6 +90,17 @@
 
       <div class="card">
         <div class="mut small">Selected article editor</div>
+
+        <div class="row">
+          <div>
+            <label>Article ID (auto)</label>
+            <input id="aid" readonly />
+          </div>
+          <div>
+            <label>created_at / updated_at</label>
+            <input id="times" readonly />
+          </div>
+        </div>
 
         <label>Title</label>
         <input id="title" />
@@ -115,7 +126,7 @@
           <div>
             <label>Upload image to repo (optional)</label>
             <input id="imgFile" type="file" accept="image/*" />
-            <div class="mut small">غادي نحولو لـ WebP ونرفعوه ل images/YYYY/MM/… ثم نحدّث image تلقائياً.</div>
+            <div class="mut small">غادي نحولو لـ WebP ونرفعوه ثم نحدّث image تلقائياً.</div>
           </div>
           <div>
             <label>Image folder (inside repo)</label>
@@ -148,7 +159,7 @@
             </div>
 
             <div class="mut small" style="margin-top:8px">
-              “Save Local” كيسجل غير فالميموري. “Commit” كيدير commit للملف فـ الريبو.
+              Save Local كيدير update فالذاكرة. Commit كيدير update للملف فـ GitHub.
             </div>
           </div>
         </div>
