@@ -209,6 +209,26 @@ async function fetchJSON(path, signal){
 }
 
 /** =========================
+ * SORT BY LATEST (updated_at then created_at)
+ * ========================= */
+function parseIsoMs(s){
+  const t = Date.parse(s || "");
+  return Number.isNaN(t) ? 0 : t;
+}
+function sortByLatest(a, b){
+  const ta = parseIsoMs(a.updated_at) || parseIsoMs(a.created_at) || 0;
+  const tb = parseIsoMs(b.updated_at) || parseIsoMs(b.created_at) || 0;
+  return tb - ta; // DESC
+}
+function formatLatestLabel(it){
+  const s = it.updated_at || it.created_at || "";
+  if(!s) return "";
+  const d = new Date(s);
+  if(Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("ar");
+}
+
+/** =========================
  * INIT
  * ========================= */
 async function init(){
@@ -228,7 +248,6 @@ async function init(){
     wireUI();
     await loadIndexFile(0);
 
-    // preload global cache if enabled
     if(globalSearchEnabled){
       ensureGlobalIndexLoaded();
     }
@@ -272,10 +291,8 @@ function wireUI(){
     globalSearchEnabled = !!e.target.checked;
     page = 1;
 
-    // if turned off, stop loading
     if(!globalSearchEnabled) abortGlobalLoad();
 
-    // if turned on and user already typed, load
     if(globalSearchEnabled && searchQuery.length > 0){
       ensureGlobalIndexLoaded();
     }
@@ -318,10 +335,9 @@ function wireUI(){
     setMode("index");
 
     await loadIndexFile(0);
-    ensureGlobalIndexLoaded(true); // force reload
+    ensureGlobalIndexLoaded(true);
   });
 
-  // Index file pagination (works when global search OFF or when just browsing index files)
   el("prevIndexFile").addEventListener("click", async ()=>{
     if(currentIndexFile <= 0) return;
     await loadIndexFile(currentIndexFile - 1);
@@ -331,7 +347,6 @@ function wireUI(){
     await loadIndexFile(currentIndexFile + 1);
   });
 
-  // In-page pagination
   el("prevPage").addEventListener("click", ()=>{
     if(page <= 1) return;
     page--;
@@ -344,7 +359,6 @@ function wireUI(){
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
-  // Year / Month browse
   el("yearSelect").addEventListener("change", async (e)=>{
     const year = e.target.value;
     if(!year){ resetMonth(); return; }
@@ -417,7 +431,6 @@ async function ensureGlobalIndexLoaded(force=false){
   if(!globalSearchEnabled) return;
   if(globalIndexCache && !force) return;
 
-  // reset cache + load
   globalIndexCache = [];
   abortGlobalLoad();
   globalAbortController = new AbortController();
@@ -437,7 +450,6 @@ async function ensureGlobalIndexLoaded(force=false){
       rebuildCategoryOptions();
 
       setGlobalProgress(((i+1)/files.length) * 100);
-      // render progressively if user searching
       if(searchQuery.length > 0) render();
     }
 
@@ -445,7 +457,6 @@ async function ensureGlobalIndexLoaded(force=false){
     setStatus("تم تحميل البحث الشامل ✅");
   }catch(err){
     if(err.name === "AbortError"){
-      // user aborted
       return;
     }
     console.error(err);
@@ -568,14 +579,11 @@ function matchesCategory(item){
 }
 
 /** =========================
- * ACTIVE SOURCE:
- * - if global search enabled AND user typed => use globalIndexCache (once available)
- * - else normal mode items
+ * ACTIVE SOURCE
  * ========================= */
 function getActiveItems(){
   const hasQuery = searchQuery.length > 0;
   if(mode === "index" && globalSearchEnabled && hasQuery){
-    // if not loaded yet, use what we have (maybe partial while loading)
     return globalIndexCache || [];
   }
   return (mode === "index") ? currentIndexItems : currentDayItems;
@@ -598,12 +606,15 @@ function rebuildCategoryOptions(){
 }
 
 /** =========================
- * RENDER + IN-PAGE PAGINATION
+ * RENDER + SORT BY LATEST + IN-PAGE PAGINATION
  * ========================= */
 function render(){
   const base = getActiveItems() || [];
 
-  const filtered = dedupItems(base)
+  // ✅ NEW: sort by latest before filtering/pagination
+  const baseSorted = [...base].sort(sortByLatest);
+
+  const filtered = dedupItems(baseSorted)
     .filter(it => matchesSearch(it.title) && matchesCategory(it));
 
   const total = filtered.length;
@@ -625,6 +636,8 @@ function render(){
 
   pageItems.forEach(it=>{
     const href = buildArticleHref(it);
+    const latest = formatLatestLabel(it);
+
     const card = document.createElement("article");
     card.className = "bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition";
     card.innerHTML = `
@@ -641,11 +654,17 @@ function render(){
         </div>
         <div class="p-4">
           <h3 class="font-bold leading-snug line-clamp-3">${escapeHtml(it.title || "—")}</h3>
+
+          ${latest ? `
+            <div class="mt-2 text-xs text-slate-500">آخر تحديث: ${escapeHtml(latest)}</div>
+          ` : ``}
+
           <div class="mt-3 flex flex-wrap gap-2">
             ${(it.categories||[]).slice(0,3).map(c=>`
               <span class="text-xs px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">${escapeHtml(c)}</span>
             `).join("")}
           </div>
+
           <div class="mt-4 flex items-center justify-between gap-2">
             <span class="px-4 py-2 rounded-2xl bg-slate-900 text-white">قراءة</span>
             <div class="text-xs text-slate-500 truncate max-w-[60%]">${escapeHtml(it.path || currentDayFilePath || "")}</div>
