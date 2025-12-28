@@ -34,8 +34,26 @@ function rawUrlFor(relPath) {
   return `https://raw.githubusercontent.com/${OWNER}/${REPO}/${branch}/${relPath}`;
 }
 
-function getToken() {
-  return $("token").value.trim();
+function getToken() { return $("token").value.trim(); }
+
+function nowIsoLocal() {
+  // Casablanca is +01 (often), but browser runs local timezone.
+  // For your use case ISO is fine; you can also store UTC if you prefer.
+  return new Date().toISOString();
+}
+
+/** sha1 hex in browser */
+async function sha1Hex(str) {
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest("SHA-1", enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** stable id: sha1(title|image-or-original) first 12 */
+async function makeStableId(title, img) {
+  const key = `${(title||"").trim()}|${(img||"").trim()}`;
+  const hex = await sha1Hex(key);
+  return hex.slice(0, 12);
 }
 
 async function ghGetFile(path, branch) {
@@ -89,16 +107,22 @@ async function ghPutFile(path, branch, message, contentText, sha) {
 }
 
 function normalizeArticle(a) {
+  // Accept old files (no id/times) safely
   return {
+    id: a.id ?? "",
     title: a.title ?? "",
     description_full: a.description_full ?? "",
     image: a.image ?? "",
     categories: Array.isArray(a.categories) ? a.categories : [],
     time: a.time ?? a.published_time ?? a.date ?? "",
 
+    // extra admin fields
     youtube_url: a.youtube_url ?? "",
     html_content: a.html_content ?? "",
     other_images: Array.isArray(a.other_images) ? a.other_images : [],
+
+    created_at: a.created_at ?? "",
+    updated_at: a.updated_at ?? "",
   };
 }
 
@@ -107,7 +131,7 @@ function serializeData() {
 }
 
 // -------------------------
-// TinyMCE init
+// TinyMCE
 // -------------------------
 function initTinyMCE() {
   if (!window.tinymce) {
@@ -120,14 +144,13 @@ function initTinyMCE() {
     height: 360,
     menubar: true,
     branding: false,
-
     plugins: "lists link image media table code fullscreen autoresize",
     toolbar:
       "undo redo | blocks | bold italic underline strikethrough | " +
       "alignleft aligncenter alignright | bullist numlist | " +
       "link image media table | code fullscreen",
 
-    // Allow iframe embeds (YouTube etc.)
+    // allow iframes / embeds
     extended_valid_elements:
       "iframe[src|frameborder|style|scrolling|class|width|height|name|align|allow|allowfullscreen]," +
       "script[src|type]," +
@@ -138,7 +161,6 @@ function initTinyMCE() {
     setup: (editor) => {
       editor.on("init", () => {
         state.tinymceReady = true;
-        // if an article is selected, push its content into the editor
         if (state.selectedIndex >= 0) {
           editor.setContent(state.data[state.selectedIndex].html_content || "");
         }
@@ -163,7 +185,7 @@ function setTinyContent(html) {
 }
 
 // -------------------------
-// UI render/search
+// Search / list
 // -------------------------
 function applySearch() {
   const q = $("search").value.trim().toLowerCase();
@@ -180,7 +202,6 @@ function applySearch() {
 function renderList() {
   const list = $("list");
   list.innerHTML = "";
-
   $("count").textContent = `Articles: ${state.data.length} | Showing: ${state.filteredIdxs.length}`;
 
   state.filteredIdxs.forEach((i) => {
@@ -190,10 +211,23 @@ function renderList() {
     div.innerHTML = `
       <div class="title">${escapeHtml(a.title || "(no title)")}</div>
       <div class="meta">${escapeHtml((a.categories||[]).join(" • "))}</div>
+      <div class="meta">id: ${escapeHtml(a.id || "—")}</div>
     `;
     div.onclick = () => selectArticle(i);
     list.appendChild(div);
   });
+}
+
+function updatePreview() {
+  const url = $("image").value.trim();
+  $("imgPreview").src = url || "";
+}
+
+function updateReadOnlyMetaFields(a) {
+  $("aid").value = a.id || "";
+  const c = a.created_at || "—";
+  const u = a.updated_at || "—";
+  $("times").value = `${c}   |   ${u}`;
 }
 
 function selectArticle(i) {
@@ -210,19 +244,39 @@ function selectArticle(i) {
   setTinyContent(a.html_content || "");
   $("others").value = (a.other_images || []).join("\n");
 
+  updateReadOnlyMetaFields(a);
   updatePreview();
   renderList();
 }
 
-function updatePreview() {
-  const url = $("image").value.trim();
-  $("imgPreview").src = url || "";
+/**
+ * Ensure id + created_at + updated_at exist.
+ * - id: stable sha1(title|image) first 12
+ * - created_at: set if missing
+ * - updated_at: always refreshed on save/commit
+ */
+async function ensureCoreMeta(a, forceUpdateUpdatedAt=true) {
+  const title = (a.title || "").trim();
+  const img = (a.image || "").trim();
+
+  if (!a.id) {
+    a.id = await makeStableId(title, img);
+  }
+  if (!a.created_at) {
+    a.created_at = nowIsoLocal();
+  }
+  if (forceUpdateUpdatedAt) {
+    a.updated_at = nowIsoLocal();
+  } else if (!a.updated_at) {
+    a.updated_at = a.created_at || nowIsoLocal();
+  }
 }
 
-function saveLocalFromForm() {
+async function saveLocalFromForm() {
   if (state.selectedIndex < 0) throw new Error("Select an article first.");
 
   const a = state.data[state.selectedIndex];
+
   a.title = $("title").value.trim();
   a.description_full = $("desc").value.trim();
   a.categories = $("cats").value
@@ -240,8 +294,12 @@ function saveLocalFromForm() {
     .map(s => s.trim())
     .filter(Boolean);
 
+  // Ensure core meta fields exist and update updated_at
+  await ensureCoreMeta(a, true);
+
+  updateReadOnlyMetaFields(a);
   updatePreview();
-  setStatus("Saved locally (not committed yet).");
+  setStatus("Saved locally (id/times updated).");
   renderList();
 }
 
@@ -255,9 +313,15 @@ function downloadBackup() {
   URL.revokeObjectURL(a.href);
 }
 
-function addNewArticle() {
+async function addNewArticle() {
   const a = normalizeArticle({});
   a.title = "مقال جديد";
+  a.image = "";
+  a.categories = [];
+
+  // create id + created/updated
+  await ensureCoreMeta(a, true);
+
   state.data.unshift(a);
   applySearch();
   selectArticle(0);
@@ -275,7 +339,7 @@ function deleteSelected() {
 }
 
 // -------------------------
-// WebP upload to repo (unchanged)
+// WebP upload to repo
 // -------------------------
 async function fileToWebPBlob(file, quality = 0.85) {
   const img = new Image();
@@ -300,24 +364,16 @@ async function fileToWebPBlob(file, quality = 0.85) {
   return blob;
 }
 
-async function sha1Hex(str) {
-  const enc = new TextEncoder().encode(str);
-  const buf = await crypto.subtle.digest("SHA-1", enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 async function uploadWebPToRepo(webpBlob, folderBase) {
   if (state.selectedIndex < 0) throw new Error("Select an article first.");
 
-  // Save current form first to make sure title/original are up to date
-  saveLocalFromForm();
+  // Save current form first
+  await saveLocalFromForm();
   const a = state.data[state.selectedIndex];
 
-  const title = a.title || "image";
-  const originalImage = a.image || "";
-
-  const h = (await sha1Hex(`${title}|${originalImage}`)).slice(0, 12);
-  const safeTitle = title
+  // stable file name based on title|image
+  const h = (await makeStableId(a.title || "", a.image || "")).slice(0, 12);
+  const safeTitle = (a.title || "image")
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\u0600-\u06FF\-]/g, "")
@@ -328,15 +384,14 @@ async function uploadWebPToRepo(webpBlob, folderBase) {
   const d = new Date();
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth()+1).padStart(2, "0");
-
   const relPath = `${folderBase}/${yyyy}/${mm}/${safeTitle}-${h}.webp`;
 
-  // If exists, just use it
+  // If exists, use it
   try {
     await ghGetFile(relPath, state.branch);
     const url = rawUrlFor(relPath);
     $("image").value = url;
-    saveLocalFromForm();
+    await saveLocalFromForm();
     setStatus(`Image already exists. Using: ${relPath}`);
     return;
   } catch (_) {}
@@ -375,7 +430,7 @@ async function uploadWebPToRepo(webpBlob, folderBase) {
 
   const publicUrl = rawUrlFor(relPath);
   $("image").value = publicUrl;
-  saveLocalFromForm();
+  await saveLocalFromForm();
   setStatus(`Uploaded WebP + set image URL ✅ (${relPath})`);
 }
 
@@ -400,13 +455,19 @@ async function loadJson() {
     if (!Array.isArray(parsed)) throw new Error("JSON file must be an array []");
 
     state.data = parsed.map(normalizeArticle);
+
+    // Ensure meta exists for all items WITHOUT changing updated_at now (only fill missing)
+    for (const a of state.data) {
+      await ensureCoreMeta(a, false);
+    }
+
     state.filteredIdxs = state.data.map((_, i) => i);
     state.selectedIndex = -1;
 
     applySearch();
     if (state.data.length) selectArticle(0);
 
-    setStatus(`Loaded ✅ (${state.data.length} articles)`);
+    setStatus(`Loaded ✅ (${state.data.length} articles). Meta fixed for missing fields.`);
   } catch (e) {
     console.error(e);
     setStatus(e.message || "Load failed", false);
@@ -415,7 +476,8 @@ async function loadJson() {
 
 async function commitJson() {
   try {
-    saveLocalFromForm();
+    await saveLocalFromForm(); // ensure form -> state + update updated_at
+
     const newText = serializeData();
     const msg = `Admin update: ${state.filePath}`;
 
@@ -437,10 +499,10 @@ async function commitJson() {
 // -------------------------
 $("loadBtn").onclick = loadJson;
 $("backupBtn").onclick = downloadBackup;
-$("newBtn").onclick = addNewArticle;
+$("newBtn").onclick = () => addNewArticle();
 
-$("saveLocalBtn").onclick = () => {
-  try { saveLocalFromForm(); }
+$("saveLocalBtn").onclick = async () => {
+  try { await saveLocalFromForm(); }
   catch (e) { setStatus(e.message, false); }
 };
 
@@ -474,7 +536,6 @@ $("imgFile").addEventListener("change", async (ev) => {
   }
 });
 
-// Init TinyMCE once the page loads
 window.addEventListener("load", () => {
   initTinyMCE();
   setStatus("Ready. Put token, choose file path, click Load JSON.");
