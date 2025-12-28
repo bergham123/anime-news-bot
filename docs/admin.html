@@ -12,7 +12,7 @@
     .grid{display:grid; grid-template-columns: 360px 1fr; gap:12px}
     @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
     label{display:block; font-size:12px; color:var(--mut); margin:10px 0 6px}
-    input, textarea, select{width:100%; padding:10px; border:1px solid var(--b); border-radius:10px; font-size:14px; box-sizing:border-box; background:#fff}
+    input, textarea{width:100%; padding:10px; border:1px solid var(--b); border-radius:10px; font-size:14px; box-sizing:border-box; background:#fff}
     textarea{min-height:110px; resize:vertical}
     .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
     .btns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
@@ -29,31 +29,37 @@
     .meta{font-size:11px; color:var(--mut); margin-top:4px}
     .preview{display:flex; gap:10px; align-items:flex-start; margin-top:10px}
     .preview img{width:220px; height:124px; object-fit:cover; border-radius:12px; border:1px solid var(--b); background:#fff}
-    .pill{display:inline-block; padding:3px 8px; border:1px solid var(--b); border-radius:999px; font-size:11px; color:#111827; margin:2px}
     .ok{color:#065f46}
     .err{color:#b91c1c}
     .small{font-size:11px}
     .hr{height:1px;background:var(--b);margin:12px 0}
+    .tinywrap{border:1px solid var(--b); border-radius:12px; overflow:hidden; background:#fff}
   </style>
+
+  <!-- TinyMCE Cloud CDN -->
+  <!-- You can keep "no-api-key" but it may show warnings; better to use your free API key. -->
+  <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/8/tinymce.min.js" referrerpolicy="origin"></script>
 </head>
+
 <body>
   <div class="wrap">
     <h2 style="margin:0 0 10px">Admin — Edit JSON in Repo</h2>
     <div class="mut">
-      كيدير load لملف JSON من الريبو، كتعدّل، ومن بعد كتعمل commit عبر GitHub API (Token مطلوب).
+      كتعدّل JSON فـ نفس الريبو وكتعمل commit عبر GitHub API (Token مطلوب).
+      TinyMCE من CDN ممكن يطلب API key باش يحيد التحذير. :contentReference[oaicite:1]{index=1}
     </div>
 
     <div class="card" style="margin-top:12px">
       <div class="row">
         <div>
           <label>GitHub Token (Fine-grained PAT)</label>
-          <input id="token" type="password" placeholder="ghp_... (ما تخزّنش هنا فالكود)" />
-          <div class="mut small">خليه خاص بــ هذا الريبو فقط، وPermissions: Contents (Read/Write).</div>
+          <input id="token" type="password" placeholder="ghp_..." />
+          <div class="mut small">Permissions: Contents (Read/Write) لهذا الريبو فقط.</div>
         </div>
         <div>
           <label>Branch</label>
           <input id="branch" value="main" />
-          <div class="mut small">ريبوك: <b>bergham123/anime-news-bot</b></div>
+          <div class="mut small">Repo: <b>bergham123/anime-news-bot</b></div>
         </div>
       </div>
 
@@ -88,7 +94,7 @@
         <label>Title</label>
         <input id="title" />
 
-        <label>Description</label>
+        <label>Description (plain text)</label>
         <textarea id="desc"></textarea>
 
         <div class="row">
@@ -102,14 +108,14 @@
           </div>
         </div>
 
-        <label>Main Image URL (raw github preferred)</label>
+        <label>Main Image URL</label>
         <input id="image" />
 
         <div class="row">
           <div>
             <label>Upload image to repo (optional)</label>
             <input id="imgFile" type="file" accept="image/*" />
-            <div class="mut small">غادي نحولو لـ WebP ونرفعوه ل images/YYYY/MM/… ثم نحدّث حقل image تلقائياً.</div>
+            <div class="mut small">غادي نحولو لـ WebP ونرفعوه ل images/YYYY/MM/… ثم نحدّث image تلقائياً.</div>
           </div>
           <div>
             <label>Image folder (inside repo)</label>
@@ -119,14 +125,16 @@
 
         <div class="preview">
           <img id="imgPreview" alt="preview" />
-          <div>
+          <div style="flex:1">
             <div class="mut small">Extra fields</div>
 
             <label>YouTube URL (optional)</label>
             <input id="yt" placeholder="https://www.youtube.com/watch?v=..." />
 
-            <label>Custom HTML (optional)</label>
-            <textarea id="html" placeholder="<p>أي محتوى HTML...</p>"></textarea>
+            <label>Rich HTML Content (TinyMCE)</label>
+            <div class="tinywrap">
+              <textarea id="html"></textarea>
+            </div>
 
             <label>Other Images (one per line)</label>
             <textarea id="others" placeholder="https://...\nhttps://..."></textarea>
@@ -140,7 +148,7 @@
             </div>
 
             <div class="mut small" style="margin-top:8px">
-              “Save Local” كيرجع يعدّل فالميموري فقط. “Commit” كيدير commit للملف فـ الريبو.
+              “Save Local” كيسجل غير فالميموري. “Commit” كيدير commit للملف فـ الريبو.
             </div>
           </div>
         </div>
