@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — Anime News Bot</title>
+  <style>
+    :root { --b:#e5e7eb; --bg:#fff; --mut:#6b7280; }
+    body{font-family:system-ui,Segoe UI,Tahoma,Arial; background:#fafafa; margin:0; padding:16px}
+    .wrap{max-width:1200px;margin:0 auto}
+    .card{background:var(--bg); border:1px solid var(--b); border-radius:14px; padding:14px; box-shadow:0 1px 8px rgba(0,0,0,.04)}
+    .grid{display:grid; grid-template-columns: 360px 1fr; gap:12px}
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+    label{display:block; font-size:12px; color:var(--mut); margin:10px 0 6px}
+    input, textarea, select{width:100%; padding:10px; border:1px solid var(--b); border-radius:10px; font-size:14px; box-sizing:border-box; background:#fff}
+    textarea{min-height:110px; resize:vertical}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .btns{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    button{padding:10px 12px; border:1px solid var(--b); border-radius:10px; background:#fff; cursor:pointer}
+    button.primary{background:#111827;color:#fff;border-color:#111827}
+    button.danger{background:#b91c1c;color:#fff;border-color:#b91c1c}
+    .mut{color:var(--mut); font-size:12px}
+    .list{border:1px solid var(--b); border-radius:12px; overflow:hidden}
+    .listhead{padding:10px; border-bottom:1px solid var(--b); background:#f9fafb}
+    .item{padding:10px; border-bottom:1px solid var(--b); cursor:pointer; background:#fff}
+    .item:hover{background:#f9fafb}
+    .item.active{background:#eef2ff}
+    .title{font-size:13px; line-height:1.4}
+    .meta{font-size:11px; color:var(--mut); margin-top:4px}
+    .preview{display:flex; gap:10px; align-items:flex-start; margin-top:10px}
+    .preview img{width:220px; height:124px; object-fit:cover; border-radius:12px; border:1px solid var(--b); background:#fff}
+    .pill{display:inline-block; padding:3px 8px; border:1px solid var(--b); border-radius:999px; font-size:11px; color:#111827; margin:2px}
+    .ok{color:#065f46}
+    .err{color:#b91c1c}
+    .small{font-size:11px}
+    .hr{height:1px;background:var(--b);margin:12px 0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2 style="margin:0 0 10px">Admin — Edit JSON in Repo</h2>
+    <div class="mut">
+      كيدير load لملف JSON من الريبو، كتعدّل، ومن بعد كتعمل commit عبر GitHub API (Token مطلوب).
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row">
+        <div>
+          <label>GitHub Token (Fine-grained PAT)</label>
+          <input id="token" type="password" placeholder="ghp_... (ما تخزّنش هنا فالكود)" />
+          <div class="mut small">خليه خاص بــ هذا الريبو فقط، وPermissions: Contents (Read/Write).</div>
+        </div>
+        <div>
+          <label>Branch</label>
+          <input id="branch" value="main" />
+          <div class="mut small">ريبوك: <b>bergham123/anime-news-bot</b></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>JSON file path inside repo</label>
+          <input id="path" value="data/2025/12/28-12.json" />
+          <div class="mut small">مثال: data/2025/12/28-12.json أو global_index/index_1.json</div>
+        </div>
+        <div class="btns" style="align-items:end">
+          <button id="loadBtn" class="primary">Load JSON</button>
+          <button id="backupBtn">Download Backup</button>
+          <button id="newBtn">+ New Article</button>
+        </div>
+      </div>
+
+      <div id="status" class="mut" style="margin-top:10px"></div>
+    </div>
+
+    <div class="grid" style="margin-top:12px">
+      <div class="card">
+        <div class="listhead">
+          <input id="search" placeholder="بحث فالعناوين..." />
+          <div class="mut small" id="count"></div>
+        </div>
+        <div class="list" id="list"></div>
+      </div>
+
+      <div class="card">
+        <div class="mut small">Selected article editor</div>
+
+        <label>Title</label>
+        <input id="title" />
+
+        <label>Description</label>
+        <textarea id="desc"></textarea>
+
+        <div class="row">
+          <div>
+            <label>Categories (comma separated)</label>
+            <input id="cats" placeholder="آخر أخبار الأنمي, ..." />
+          </div>
+          <div>
+            <label>Published time (optional)</label>
+            <input id="time" placeholder="2025-12-28T12:30:00+01:00" />
+          </div>
+        </div>
+
+        <label>Main Image URL (raw github preferred)</label>
+        <input id="image" />
+
+        <div class="row">
+          <div>
+            <label>Upload image to repo (optional)</label>
+            <input id="imgFile" type="file" accept="image/*" />
+            <div class="mut small">غادي نحولو لـ WebP ونرفعوه ل images/YYYY/MM/… ثم نحدّث حقل image تلقائياً.</div>
+          </div>
+          <div>
+            <label>Image folder (inside repo)</label>
+            <input id="imgFolder" value="images" />
+          </div>
+        </div>
+
+        <div class="preview">
+          <img id="imgPreview" alt="preview" />
+          <div>
+            <div class="mut small">Extra fields</div>
+
+            <label>YouTube URL (optional)</label>
+            <input id="yt" placeholder="https://www.youtube.com/watch?v=..." />
+
+            <label>Custom HTML (optional)</label>
+            <textarea id="html" placeholder="<p>أي محتوى HTML...</p>"></textarea>
+
+            <label>Other Images (one per line)</label>
+            <textarea id="others" placeholder="https://...\nhttps://..."></textarea>
+
+            <div class="hr"></div>
+
+            <div class="btns">
+              <button id="saveLocalBtn">Save (Local only)</button>
+              <button id="commitBtn" class="primary">Commit to GitHub</button>
+              <button id="deleteBtn" class="danger">Delete Article</button>
+            </div>
+
+            <div class="mut small" style="margin-top:8px">
+              “Save Local” كيرجع يعدّل فالميموري فقط. “Commit” كيدير commit للملف فـ الريبو.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script src="./admin.js"></script>
+</body>
+</html>
