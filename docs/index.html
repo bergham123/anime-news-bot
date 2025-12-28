@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Anime News Browser</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <header class="sticky top-0 z-40 backdrop-blur bg-white/80 border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-slate-900 text-white grid place-items-center font-bold">AN</div>
+          <div>
+            <h1 class="text-lg font-bold leading-tight">متصفح أخبار الأنمي</h1>
+            <p class="text-xs text-slate-500">بحث شامل + Pagination + Lazy + حذف المتشابه</p>
+          </div>
+        </div>
+        <span id="statsBadge" class="text-xs px-3 py-1 rounded-full bg-slate-100 border border-slate-200">—</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+        <div class="md:col-span-5">
+          <div class="relative">
+            <input id="q" type="search" placeholder="ابحث في العناوين…"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-11 outline-none focus:ring-2 focus:ring-slate-300" />
+            <div class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">🔎</div>
+          </div>
+        </div>
+
+        <div class="md:col-span-2">
+          <select id="yearSelect"
+            class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300">
+            <option value="">السنة</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-2">
+          <select id="monthSelect" disabled
+            class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none disabled:opacity-60 focus:ring-2 focus:ring-slate-300">
+            <option value="">الشهر</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-3">
+          <select id="categorySelect"
+            class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-slate-300">
+            <option value="">كل التصنيفات</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-12 flex flex-wrap items-center gap-2">
+          <button id="modeIndexBtn"
+            class="px-4 py-2 rounded-2xl bg-slate-900 text-white hover:opacity-90">
+            عرض الفهرس
+          </button>
+          <button id="modeBrowseBtn"
+            class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100">
+            تصفح حسب الشهر
+          </button>
+
+          <label class="ml-auto flex items-center gap-2 text-xs text-slate-600">
+            <input id="dedupToggle" type="checkbox" checked class="accent-slate-900">
+            حذف المتشابه
+          </label>
+
+          <label class="flex items-center gap-2 text-xs text-slate-600">
+            <input id="globalSearchToggle" type="checkbox" checked class="accent-slate-900">
+            بحث شامل (كل index_*)
+          </label>
+
+          <div class="text-xs text-slate-500 flex items-center gap-2">
+            <span id="status">—</span>
+            <button id="resetBtn" class="px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100">
+              إعادة ضبط
+            </button>
+          </div>
+        </div>
+
+        <!-- progress bar for global search -->
+        <div id="globalProgressWrap" class="md:col-span-12 hidden">
+          <div class="p-3 rounded-2xl bg-white border border-slate-200 flex items-center gap-3">
+            <div class="text-xs text-slate-600 whitespace-nowrap">تحميل البحث الشامل:</div>
+            <div class="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div id="globalProgress" class="h-2 bg-slate-900 w-0"></div>
+            </div>
+            <button id="abortGlobal"
+              class="px-3 py-1.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 text-xs">
+              إيقاف
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- Index file pager (still useful when global search OFF) -->
+    <section id="indexFilePager" class="mb-4">
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="prevIndexFile"
+          class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">
+          index السابق
+        </button>
+        <button id="nextIndexFile"
+          class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">
+          index التالي
+        </button>
+        <div class="text-sm text-slate-600">
+          ملف: <span id="indexFileNo" class="font-semibold">—</span> / <span id="indexFileTotal" class="font-semibold">—</span>
+        </div>
+        <div class="ml-auto text-sm text-slate-600">
+          عناصر الملف: <span id="indexFileCount" class="font-semibold">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- In-page pager -->
+    <section id="pagePager" class="mb-4 hidden">
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="prevPage"
+          class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">
+          السابق
+        </button>
+        <button id="nextPage"
+          class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">
+          التالي
+        </button>
+        <div class="text-sm text-slate-600">
+          صفحة: <span id="pageNo" class="font-semibold">—</span> / <span id="pageTotal" class="font-semibold">—</span>
+        </div>
+        <div class="ml-auto text-sm text-slate-600">
+          نتائج: <span id="resultsCount" class="font-semibold">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Days bar -->
+    <section id="daysBar" class="hidden mb-4">
+      <div class="p-4 rounded-3xl bg-white border border-slate-200">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="text-sm text-slate-600">أيام الشهر:</div>
+          <div id="daysWrap" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      <div id="empty" class="hidden mt-10 text-center text-slate-500">لا توجد نتائج.</div>
+    </section>
+  </main>
+
+<script>
+/** =========================
+ * CONFIG
+ * ========================= */
+const OWNER  = "bergham123";
+const REPO   = "anime-news-bot";
+const BRANCH = "main";
+const RAW_BASE = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/`;
+
+const PAGE_SIZE = 24;
+
+/** =========================
+ * STATE
+ * ========================= */
+let mode = "index";
+let stats = null;
+let pagination = null;
+
+let currentIndexFile = 0;
+let currentIndexItems = [];
+
+let yearManifest = null;
+let monthManifest = null;
+let currentDayItems = [];
+let currentDayFilePath = null;
+
+let categoriesSet = new Set();
+let selectedCategory = "";
+let searchQuery = "";
+let dedupEnabled = true;
+
+let globalSearchEnabled = true;
+let globalIndexCache = null; // array of ALL index items when loaded
+let globalAbortController = null;
+
+let page = 1;
+
+/** =========================
+ * DOM
+ * ========================= */
+const el = (id) => document.getElementById(id);
+const grid = el("grid");
+
+function setStatus(msg){ el("status").textContent = msg; }
+function showEmpty(show){ el("empty").classList.toggle("hidden", !show); }
+
+async function fetchJSON(path, signal){
+  const url = RAW_BASE + path.replace(/^\//,"");
+  const res = await fetch(url, { cache:"no-store", signal });
+  if(!res.ok) throw new Error(`Fetch failed (${res.status}): ${path}`);
+  return res.json();
+}
+
+/** =========================
+ * INIT
+ * ========================= */
+async function init(){
+  try{
+    setStatus("تحميل…");
+    [stats, pagination] = await Promise.all([
+      fetchJSON("global_index/stats.json"),
+      fetchJSON("global_index/pagination.json")
+    ]);
+
+    el("statsBadge").textContent =
+      `🗂️ ${stats.total_articles} • اليوم +${stats.added_today} • ${new Date(stats.last_update).toLocaleString("ar")}`;
+
+    yearManifest = await fetchJSON("data/2025/year_manifest.json");
+    buildYearOptions(yearManifest);
+
+    wireUI();
+    await loadIndexFile(0);
+
+    // preload global cache if enabled
+    if(globalSearchEnabled){
+      ensureGlobalIndexLoaded();
+    }
+
+    setMode("index");
+    setStatus("جاهز ✅");
+  }catch(err){
+    console.error(err);
+    setStatus("خطأ ❌");
+    grid.innerHTML = `
+      <div class="col-span-full p-6 rounded-3xl bg-white border border-red-200 text-red-700">
+        <div class="font-bold mb-2">تعذر تحميل البيانات</div>
+        <div class="text-sm break-words">${escapeHtml(err.message || String(err))}</div>
+      </div>`;
+  }
+}
+
+function wireUI(){
+  el("q").addEventListener("input", (e)=>{
+    searchQuery = e.target.value.trim();
+    page = 1;
+    if(globalSearchEnabled && searchQuery.length > 0){
+      ensureGlobalIndexLoaded();
+    }
+    render();
+  });
+
+  el("categorySelect").addEventListener("change", (e)=>{
+    selectedCategory = e.target.value || "";
+    page = 1;
+    render();
+  });
+
+  el("dedupToggle").addEventListener("change", (e)=>{
+    dedupEnabled = !!e.target.checked;
+    page = 1;
+    render();
+  });
+
+  el("globalSearchToggle").addEventListener("change", (e)=>{
+    globalSearchEnabled = !!e.target.checked;
+    page = 1;
+
+    // if turned off, stop loading
+    if(!globalSearchEnabled) abortGlobalLoad();
+
+    // if turned on and user already typed, load
+    if(globalSearchEnabled && searchQuery.length > 0){
+      ensureGlobalIndexLoaded();
+    }
+    render();
+  });
+
+  el("abortGlobal").addEventListener("click", ()=>{
+    abortGlobalLoad();
+    setStatus("تم إيقاف التحميل");
+  });
+
+  el("modeIndexBtn").addEventListener("click", async ()=>{
+    setMode("index");
+    page = 1;
+    render();
+  });
+
+  el("modeBrowseBtn").addEventListener("click", ()=>{
+    setMode("browse");
+    page = 1;
+    render();
+  });
+
+  el("resetBtn").addEventListener("click", async ()=>{
+    searchQuery = "";
+    selectedCategory = "";
+    dedupEnabled = true;
+    globalSearchEnabled = true;
+
+    el("q").value = "";
+    el("categorySelect").value = "";
+    el("dedupToggle").checked = true;
+    el("globalSearchToggle").checked = true;
+
+    el("yearSelect").value = "";
+    resetMonth();
+    resetDays();
+
+    page = 1;
+    setMode("index");
+
+    await loadIndexFile(0);
+    ensureGlobalIndexLoaded(true); // force reload
+  });
+
+  // Index file pagination (works when global search OFF or when just browsing index files)
+  el("prevIndexFile").addEventListener("click", async ()=>{
+    if(currentIndexFile <= 0) return;
+    await loadIndexFile(currentIndexFile - 1);
+  });
+  el("nextIndexFile").addEventListener("click", async ()=>{
+    if(currentIndexFile >= pagination.files.length - 1) return;
+    await loadIndexFile(currentIndexFile + 1);
+  });
+
+  // In-page pagination
+  el("prevPage").addEventListener("click", ()=>{
+    if(page <= 1) return;
+    page--;
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  el("nextPage").addEventListener("click", ()=>{
+    page++;
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  // Year / Month browse
+  el("yearSelect").addEventListener("change", async (e)=>{
+    const year = e.target.value;
+    if(!year){ resetMonth(); return; }
+    await loadYear(year);
+  });
+
+  el("monthSelect").addEventListener("change", async (e)=>{
+    const month = e.target.value;
+    if(!month){ resetDays(); currentDayItems = []; render(); return; }
+    await loadMonth(yearManifest.year, month);
+  });
+}
+
+function setMode(next){
+  mode = next;
+  el("daysBar").classList.toggle("hidden", mode !== "browse");
+  el("indexFilePager").classList.toggle("hidden", mode !== "index");
+
+  el("modeIndexBtn").className = (mode==="index")
+    ? "px-4 py-2 rounded-2xl bg-slate-900 text-white hover:opacity-90"
+    : "px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100";
+
+  el("modeBrowseBtn").className = (mode==="browse")
+    ? "px-4 py-2 rounded-2xl bg-slate-900 text-white hover:opacity-90"
+    : "px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100";
+}
+
+/** =========================
+ * LOAD INDEX FILE
+ * ========================= */
+async function loadIndexFile(idx){
+  setStatus(`تحميل ${pagination.files[idx]}…`);
+  currentIndexFile = idx;
+  const fileName = pagination.files[idx];
+  currentIndexItems = await fetchJSON(`global_index/${fileName}`);
+
+  collectCategories(currentIndexItems);
+  rebuildCategoryOptions();
+
+  el("indexFileNo").textContent = String(idx + 1);
+  el("indexFileTotal").textContent = String(pagination.files.length);
+  el("indexFileCount").textContent = String(currentIndexItems.length);
+  el("prevIndexFile").disabled = (idx === 0);
+  el("nextIndexFile").disabled = (idx === pagination.files.length - 1);
+
+  page = 1;
+  render();
+  setStatus("جاهز ✅");
+}
+
+/** =========================
+ * GLOBAL SEARCH (load all index files progressively)
+ * ========================= */
+function showGlobalProgress(show){
+  el("globalProgressWrap").classList.toggle("hidden", !show);
+}
+function setGlobalProgress(pct){
+  el("globalProgress").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+
+function abortGlobalLoad(){
+  if(globalAbortController){
+    globalAbortController.abort();
+    globalAbortController = null;
+  }
+  showGlobalProgress(false);
+}
+
+async function ensureGlobalIndexLoaded(force=false){
+  if(!globalSearchEnabled) return;
+  if(globalIndexCache && !force) return;
+
+  // reset cache + load
+  globalIndexCache = [];
+  abortGlobalLoad();
+  globalAbortController = new AbortController();
+
+  showGlobalProgress(true);
+  setGlobalProgress(0);
+  setStatus("تحميل البحث الشامل…");
+
+  try{
+    const files = pagination.files || [];
+    for(let i=0;i<files.length;i++){
+      const f = files[i];
+      const part = await fetchJSON(`global_index/${f}`, globalAbortController.signal);
+      globalIndexCache.push(...part);
+
+      collectCategories(part);
+      rebuildCategoryOptions();
+
+      setGlobalProgress(((i+1)/files.length) * 100);
+      // render progressively if user searching
+      if(searchQuery.length > 0) render();
+    }
+
+    showGlobalProgress(false);
+    setStatus("تم تحميل البحث الشامل ✅");
+  }catch(err){
+    if(err.name === "AbortError"){
+      // user aborted
+      return;
+    }
+    console.error(err);
+    showGlobalProgress(false);
+    setStatus("فشل تحميل البحث الشامل ❌");
+  }finally{
+    globalAbortController = null;
+  }
+}
+
+/** =========================
+ * YEAR/MONTH/DAY
+ * ========================= */
+function buildYearOptions(ym){
+  el("yearSelect").innerHTML = `<option value="">السنة</option>
+    <option value="${ym.year}">${ym.year}</option>`;
+}
+
+async function loadYear(year){
+  setStatus(`تحميل year_manifest ${year}…`);
+  yearManifest = await fetchJSON(`data/${year}/year_manifest.json`);
+  const months = Object.keys(yearManifest.months || {}).sort().reverse();
+
+  el("monthSelect").disabled = false;
+  el("monthSelect").innerHTML = `<option value="">الشهر</option>` + months.map(m=>{
+    const mm = String(m).padStart(2,"0");
+    return `<option value="${mm}">${mm}</option>`;
+  }).join("");
+
+  resetDays();
+  currentDayItems = [];
+  setStatus("اختر شهراً");
+}
+
+async function loadMonth(year, month){
+  setStatus(`تحميل month_manifest ${year}-${month}…`);
+  monthManifest = await fetchJSON(`data/${year}/${month}/month_manifest.json`);
+
+  const days = Object.keys(monthManifest.days || {}).sort().reverse();
+  const wrap = el("daysWrap");
+  wrap.innerHTML = "";
+
+  days.forEach(d=>{
+    const btn = document.createElement("button");
+    btn.className = "px-3 py-1.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 text-sm";
+    btn.textContent = d;
+    btn.addEventListener("click", async ()=>{
+      await loadDayFile(monthManifest.days[d], d);
+    });
+    wrap.appendChild(btn);
+  });
+
+  if(days[0]){
+    await loadDayFile(monthManifest.days[days[0]], days[0]);
+  } else {
+    currentDayItems = [];
+    render();
+  }
+}
+
+async function loadDayFile(path, day){
+  setStatus(`تحميل يوم ${day}…`);
+  currentDayFilePath = path;
+  currentDayItems = await fetchJSON(path);
+
+  collectCategories(currentDayItems);
+  rebuildCategoryOptions();
+
+  setMode("browse");
+  page = 1;
+  render();
+  setStatus(`تم تحميل ${currentDayItems.length} خبر`);
+}
+
+function resetMonth(){
+  el("monthSelect").disabled = true;
+  el("monthSelect").innerHTML = `<option value="">الشهر</option>`;
+  resetDays();
+}
+function resetDays(){
+  el("daysWrap").innerHTML = "";
+  currentDayFilePath = null;
+}
+
+/** =========================
+ * FILTERS + DEDUP
+ * ========================= */
+function normalizeTitle(s){
+  return String(s||"")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupItems(items){
+  if(!dedupEnabled) return items;
+  const seen = new Set();
+  const out = [];
+  for(const it of items){
+    const keyA = normalizeTitle(it.title || "");
+    const keyB = (it.image || "").trim();
+    const key = keyA + "||" + keyB;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  return out;
+}
+
+function matchesSearch(title){
+  if(!searchQuery) return true;
+  const q = normalizeTitle(searchQuery);
+  const t = normalizeTitle(title);
+  return t.includes(q);
+}
+function matchesCategory(item){
+  if(!selectedCategory) return true;
+  return (item.categories || []).includes(selectedCategory);
+}
+
+/** =========================
+ * ACTIVE SOURCE:
+ * - if global search enabled AND user typed => use globalIndexCache (once available)
+ * - else normal mode items
+ * ========================= */
+function getActiveItems(){
+  const hasQuery = searchQuery.length > 0;
+  if(mode === "index" && globalSearchEnabled && hasQuery){
+    // if not loaded yet, use what we have (maybe partial while loading)
+    return globalIndexCache || [];
+  }
+  return (mode === "index") ? currentIndexItems : currentDayItems;
+}
+
+/** =========================
+ * CATEGORIES
+ * ========================= */
+function collectCategories(items){
+  (items||[]).forEach(it => (it.categories||[]).forEach(c => categoriesSet.add(c)));
+}
+function rebuildCategoryOptions(){
+  const cats = Array.from(categoriesSet).sort((a,b)=> a.localeCompare(b,"ar"));
+  const sel = el("categorySelect");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">كل التصنيفات</option>` + cats.map(c=>
+    `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`
+  ).join("");
+  if(cur && cats.includes(cur)) sel.value = cur;
+}
+
+/** =========================
+ * RENDER + IN-PAGE PAGINATION
+ * ========================= */
+function render(){
+  const base = getActiveItems() || [];
+
+  const filtered = dedupItems(base)
+    .filter(it => matchesSearch(it.title) && matchesCategory(it));
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if(page > totalPages) page = totalPages;
+
+  const start = (page - 1) * PAGE_SIZE;
+  const pageItems = filtered.slice(start, start + PAGE_SIZE);
+
+  el("pagePager").classList.toggle("hidden", total <= PAGE_SIZE);
+  el("pageNo").textContent = String(page);
+  el("pageTotal").textContent = String(totalPages);
+  el("resultsCount").textContent = String(total);
+  el("prevPage").disabled = (page <= 1);
+  el("nextPage").disabled = (page >= totalPages);
+
+  grid.innerHTML = "";
+  showEmpty(pageItems.length === 0);
+
+  pageItems.forEach(it=>{
+    const href = buildArticleHref(it);
+    const card = document.createElement("article");
+    card.className = "bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition";
+    card.innerHTML = `
+      <a href="${escapeAttr(href)}" class="block">
+        <div class="aspect-video bg-slate-100 overflow-hidden">
+          ${it.image ? `
+            <img data-src="${escapeAttr(it.image)}"
+                 class="lazy w-full h-full object-cover"
+                 alt=""
+                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='360'%3E%3C/svg%3E" />
+          ` : `
+            <div class="w-full h-full grid place-items-center text-slate-400">No Image</div>
+          `}
+        </div>
+        <div class="p-4">
+          <h3 class="font-bold leading-snug line-clamp-3">${escapeHtml(it.title || "—")}</h3>
+          <div class="mt-3 flex flex-wrap gap-2">
+            ${(it.categories||[]).slice(0,3).map(c=>`
+              <span class="text-xs px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">${escapeHtml(c)}</span>
+            `).join("")}
+          </div>
+          <div class="mt-4 flex items-center justify-between gap-2">
+            <span class="px-4 py-2 rounded-2xl bg-slate-900 text-white">قراءة</span>
+            <div class="text-xs text-slate-500 truncate max-w-[60%]">${escapeHtml(it.path || currentDayFilePath || "")}</div>
+          </div>
+        </div>
+      </a>
+    `;
+    grid.appendChild(card);
+  });
+
+  observeLazyImages();
+}
+
+function buildArticleHref(item){
+  if(item.path){
+    return `article.html?path=${encodeURIComponent(item.path)}`;
+  }
+  if(currentDayFilePath){
+    const idx = currentDayItems.indexOf(item);
+    return `article.html?path=${encodeURIComponent(currentDayFilePath + "#" + idx)}`;
+  }
+  return `article.html`;
+}
+
+/** =========================
+ * TRUE LAZY LOADING
+ * ========================= */
+let lazyObserver = null;
+function observeLazyImages(){
+  const imgs = document.querySelectorAll("img.lazy[data-src]");
+  if(!("IntersectionObserver" in window)){
+    imgs.forEach(img => { img.src = img.dataset.src; img.removeAttribute("data-src"); });
+    return;
+  }
+  if(!lazyObserver){
+    lazyObserver = new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting) return;
+        const img = entry.target;
+        const real = img.dataset.src;
+        if(real){
+          img.src = real;
+          img.removeAttribute("data-src");
+        }
+        lazyObserver.unobserve(img);
+      });
+    }, { rootMargin: "300px" });
+  }
+  imgs.forEach(img => lazyObserver.observe(img));
+}
+
+/** =========================
+ * HELPERS
+ * ========================= */
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+function escapeAttr(s){ return escapeHtml(s); }
+
+init();
+</script>
+</body>
+</html>
