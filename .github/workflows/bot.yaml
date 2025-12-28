@@ -1,0 +1,43 @@
+name: News Bot
+
+on:
+  schedule:
+    - cron: "*/40 * * * *"   # runs at minute 0 and 40 each hour
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SITE_API_URL: ${{ secrets.SITE_API_URL }}
+          SITE_API_TOKEN: ${{ secrets.SITE_API_TOKEN }}
+        run: |
+          python bot.py
+
+      # Optional: commit saved json/state files back to repo
+      # (Uncomment if you want to persist last_* files and data/ updates in the repo)
+      #
+      # - name: Commit changes
+      #   run: |
+      #     git config user.name "github-actions"
+      #     git config user.email "github-actions@github.com"
+      #     git add -A
+      #     git commit -m "Update data" || echo "No changes"
+      #     git push
