@@ -68,7 +68,7 @@ JPEG_QUALITY     = 85
 WEBP_QUALITY     = 85
 HTTP_TIMEOUT     = 25
 
-# Telegram caption limits safety
+# Telegram caption safety
 TG_CAPTION_DESC_LIMIT = 350  # keep it short so link fits
 
 # Logging
@@ -80,6 +80,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # ====================
 def now_local() -> datetime:
     return datetime.now(TZ)
+
+def iso_now() -> str:
+    return now_local().isoformat()
 
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
@@ -127,27 +130,34 @@ def write_text_file(path: Path, value: str):
 def slugify(text: str, max_len: int = 60) -> str:
     text = (text or "").strip().lower()
     text = re.sub(r"\s+", "-", text)
+    # keep arabic + latin + numbers + dash
     text = re.sub(r"[^a-z0-9\u0600-\u06FF\-]+", "", text)
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text[:max_len] if text else "image"
 
-def stable_image_filename(title: str, original_url: str) -> str:
-    base = slugify(title)
+def stable_article_id(title: str, original_url: str) -> str:
+    """
+    Stable ID based on title + ORIGINAL image url.
+    Same news => same id.
+    """
     key = f"{(title or '').strip()}|{(original_url or '').strip()}"
-    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+def stable_image_filename(title: str, original_url: str) -> str:
+    """
+    Stable filename based ONLY on hash(title + original_url).
+    No datetime => same item => same filename forever.
+    """
+    base = slugify(title)
+    h = stable_article_id(title, original_url)  # reuse same hash prefix
     return f"{base}-{h}.webp"
 
 def build_raw_github_url(rel_path: str) -> str:
     return f"https://raw.githubusercontent.com/{GITHUB_REPO_SLUG}/{GITHUB_REPO_BRANCH}/{rel_path}"
 
 def build_article_url(day_path: str, idx: int) -> str:
-    """
-    day_path example: data/2025/11/09-11.json
-    idx example: 0
-    output: https://.../article.html?path=data%2F...%230
-    """
     raw = f"{day_path}#{idx}"
-    encoded = quote(raw, safe="")  # encode everything
+    encoded = quote(raw, safe="")
     return f"{SITE_BASE_URL}/{ARTICLE_PAGE}?path={encoded}"
 
 
@@ -155,6 +165,11 @@ def build_article_url(day_path: str, idx: int) -> str:
 # RSS extraction helpers
 # ====================
 def extract_full_text(entry) -> str:
+    """
+    Full text without HTML:
+    - prefer content:encoded (entry.content[0].value)
+    - fallback to description
+    """
     try:
         if hasattr(entry, "content") and entry.content and isinstance(entry.content, list):
             raw = entry.content[0].get("value") or ""
@@ -170,12 +185,14 @@ def extract_full_text(entry) -> str:
     return ""
 
 def extract_image(entry) -> str | None:
+    # 1) media:thumbnail
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         try:
             return entry.media_thumbnail[0].get("url") or entry.media_thumbnail[0]["url"]
         except Exception:
             pass
 
+    # 2) from content/description
     raw = ""
     try:
         if hasattr(entry, "content") and entry.content and isinstance(entry.content, list):
@@ -205,21 +222,33 @@ def extract_categories(entry) -> list:
     return cats
 
 def build_daily_record(entry) -> dict:
+    """
+    Adds: id, created_at, updated_at
+    id is stable based on title + ORIGINAL image url
+    """
     title = getattr(entry, "title", "") or ""
     description_full = extract_full_text(entry)
-    image = extract_image(entry)
+    image = extract_image(entry)  # ORIGINAL url (important for stable id)
     categories = extract_categories(entry)
+
+    now_iso = iso_now()
+    aid = stable_article_id(title, image or "")
+
     return {
+        "id": aid,
         "title": title,
         "description_full": description_full,
         "image": image,
-        "categories": categories
+        "categories": categories,
+        "created_at": now_iso,
+        "updated_at": now_iso
     }
 
 def get_entry_identity(entry) -> str:
+    """Dedup fingerprint: id (title + image)."""
     title = getattr(entry, "title", "") or ""
     image = extract_image(entry)
-    return f"{title.strip()}|{(image or '').strip()}"
+    return stable_article_id(title, image or "")
 
 
 # ====================
@@ -290,6 +319,10 @@ def process_image_with_logo(url: str, out_format: str = "JPEG") -> BytesIO | Non
     return out
 
 def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str, bool]:
+    """
+    Saves webp into images/YYYY/MM/ using stable filename (hash only).
+    Returns: (rel_path, raw_url, created_new_file)
+    """
     y, m = dt.year, dt.month
     out_dir = IMAGES_DIR / f"{y}" / f"{m:02d}"
     ensure_dir(out_dir)
@@ -312,21 +345,23 @@ def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: 
 # ====================
 def save_single_news(entry):
     """
-    Return (record_or_none, day_path_str, idx_or_none)
+    Save ONLY 1 entry to today's JSON.
+    Dedup by id within today's file.
+    Return (record_or_none, day_path_str, idx_or_none).
     """
     today = now_local()
     path = daily_path(today)
     existing = load_json_list(path)
 
-    fp = get_entry_identity(entry)
-    existing_fp = {f"{(x.get('title') or '').strip()}|{(x.get('image') or '').strip()}" for x in existing}
-    if fp in existing_fp:
+    rec = build_daily_record(entry)
+    new_id = (rec.get("id") or "").strip()
+
+    existing_ids = {str(x.get("id") or "").strip() for x in existing}
+    if new_id and new_id in existing_ids:
         return None, str(path), None
 
-    rec = build_daily_record(entry)
     existing.append(rec)
     save_json_list(path, existing)
-
     idx = len(existing) - 1
     return rec, str(path), idx
 
@@ -344,7 +379,7 @@ def update_month_manifest(dt: datetime):
     for p in sorted(month_dir.glob("*.json")):
         if p.name == "month_manifest.json":
             continue
-        day_key = p.stem
+        day_key = p.stem  # "DD-MM"
         days[day_key.split("-")[0]] = str(p.as_posix())
 
     manifest = {
@@ -403,19 +438,26 @@ def gi_save_stats(total_articles: int, added_today: int):
     stats = {
         "total_articles": total_articles,
         "added_today": added_today,
-        "last_update": now_local().isoformat()
+        "last_update": iso_now()
     }
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
 
 def convert_full_to_slim(records: list, source_path: str = None) -> list:
+    """
+    Slim record for global index:
+    Keep: id, title, image, categories, created_at, updated_at, path
+    """
     out = []
     for i, r in enumerate(records):
         path = f"{source_path}#{i}" if source_path else None
         out.append({
+            "id": r.get("id"),
             "title": r.get("title"),
             "image": r.get("image"),
             "categories": r.get("categories") or [],
+            "created_at": r.get("created_at"),
+            "updated_at": r.get("updated_at"),
             "path": path
         })
     return out
@@ -485,7 +527,6 @@ async def send_crunchyroll_one(bot: telegram.Bot, entry, article_url: str | None
 
     await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="📰 خبر جديد\n\n" + caption)
 
-
 async def send_youtube_latest_if_new(bot: telegram.Bot):
     feed = feedparser.parse(YOUTUBE_RSS_URL)
     if not feed.entries:
@@ -542,24 +583,24 @@ async def run():
             rec, day_path_str, idx = save_single_news(latest)
 
             if rec is not None:
-                # Build pages link (data/...#idx)
                 article_url = build_article_url(day_path_str, idx if idx is not None else 0)
 
                 # Send to Telegram with link
                 await send_crunchyroll_one(bot, latest, article_url=article_url)
 
-                # Make WebP, save into same repo (stable filename), replace rec["image"]
-                img_url = rec.get("image")
-                if img_url:
-                    webp = process_image_with_logo(img_url, out_format="WEBP")
+                # Make WebP, save into same repo, replace rec["image"]
+                original_img_url = rec.get("image")  # ORIGINAL URL used in id/hash
+                if original_img_url:
+                    webp = process_image_with_logo(original_img_url, out_format="WEBP")
                     if webp:
                         rel_path, raw_url, created = save_webp_into_repo(
                             title=rec.get("title") or "",
-                            original_url=img_url,
+                            original_url=original_img_url,
                             webp_bytes=webp,
                             dt=now_local(),
                         )
                         rec["image"] = raw_url
+                        rec["updated_at"] = iso_now()
                         logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
                     else:
                         logging.warning("Could not create WebP; keeping original image URL.")
@@ -570,14 +611,13 @@ async def run():
                 day_path = Path(day_path_str)
                 day_records = load_json_list(day_path)
                 if day_records:
-                    # idx should be last item, but use idx safely
                     if idx is not None and 0 <= idx < len(day_records):
                         day_records[idx] = rec
                     else:
                         day_records[-1] = rec
                     save_json_list(day_path, day_records)
 
-                # manifests + global index (will use rec with updated image URL)
+                # manifests + global index
                 today = now_local()
                 update_month_manifest(today)
                 update_year_manifest(today)
