@@ -27,10 +27,9 @@ TZ = ZoneInfo("Africa/Casablanca")
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Repo info for building raw URLs (same repo)
-# Example: "OrientTech/anime-bot"
-GITHUB_REPO_SLUG   = os.getenv("GITHUB_REPO_SLUG")              # REQUIRED for raw url
-GITHUB_REPO_BRANCH = os.getenv("GITHUB_REPO_BRANCH", "main")    # default main
+# Same repo (fixed)
+GITHUB_REPO_SLUG   = "bergham123/anime-news-bot"
+GITHUB_REPO_BRANCH = "main"
 
 # Sources
 CRUNCHYROLL_RSS_URL = "https://cr-news-api-service.prd.crunchyrollsvc.com/v1/ar-SA/rss"
@@ -125,17 +124,17 @@ def slugify(text: str, max_len: int = 60) -> str:
     text = re.sub(r"-{2,}", "-", text).strip("-")
     return text[:max_len] if text else "image"
 
-def build_image_filename(title: str, dt: datetime, image_src_url: str = "") -> str:
-    # unique-ish + stable: slug + short hash of (title|url)
+def stable_image_filename(title: str, original_url: str) -> str:
+    """
+    Stable filename based ONLY on hash(title + original_url).
+    No datetime => same item => same filename forever.
+    """
     base = slugify(title)
-    key = f"{title}|{image_src_url}"
-    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
-    return f"{base}-{dt.strftime('%Y%m%d-%H%M')}-{h}.webp"
+    key = f"{(title or '').strip()}|{(original_url or '').strip()}"
+    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+    return f"{base}-{h}.webp"
 
 def build_raw_github_url(rel_path: str) -> str:
-    if not GITHUB_REPO_SLUG:
-        # fallback: just return rel path (works if you later serve it yourself)
-        return rel_path
     return f"https://raw.githubusercontent.com/{GITHUB_REPO_SLUG}/{GITHUB_REPO_BRANCH}/{rel_path}"
 
 
@@ -277,24 +276,27 @@ def process_image_with_logo(url: str, out_format: str = "JPEG") -> BytesIO | Non
     out.seek(0)
     return out
 
-def save_webp_into_repo(title: str, image_src_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str]:
+def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str, bool]:
     """
-    Saves webp bytes into repo under images/YYYY/MM/<filename>.webp
-    Returns: (relative_path, raw_public_url)
+    Saves webp into images/YYYY/MM/ using stable filename (hash only).
+    Returns: (rel_path, raw_url, created_new_file)
+      - created_new_file=False if file already existed
     """
     y, m = dt.year, dt.month
     out_dir = IMAGES_DIR / f"{y}" / f"{m:02d}"
     ensure_dir(out_dir)
 
-    filename = build_image_filename(title, dt, image_src_url=image_src_url)
+    filename = stable_image_filename(title, original_url)
     file_path = out_dir / filename
+    rel_path = file_path.as_posix()
+    raw_url = build_raw_github_url(rel_path)
+
+    if file_path.exists():
+        return rel_path, raw_url, False
 
     webp_bytes.seek(0)
     file_path.write_bytes(webp_bytes.read())
-
-    rel_path = file_path.as_posix()
-    raw_url = build_raw_github_url(rel_path)
-    return rel_path, raw_url
+    return rel_path, raw_url, True
 
 
 # ====================
@@ -517,39 +519,43 @@ async def run():
         if last_fp and fp == last_fp:
             logging.info("Crun: latest already processed/sent. Skip.")
         else:
-            rec, day_path = save_single_news(latest)
+            rec, day_path_str = save_single_news(latest)
 
             if rec is not None:
                 # Send to Telegram
                 await send_crunchyroll_one(bot, latest)
 
-                # Convert image -> WebP, save into SAME repo, replace rec["image"] with raw URL
+                # Make WebP, save into same repo (stable filename), replace rec["image"]
                 img_url = rec.get("image")
                 if img_url:
                     webp = process_image_with_logo(img_url, out_format="WEBP")
                     if webp:
-                        rel_path, raw_url = save_webp_into_repo(
+                        rel_path, raw_url, created = save_webp_into_repo(
                             title=rec.get("title") or "",
-                            image_src_url=img_url,
+                            original_url=img_url,
                             webp_bytes=webp,
                             dt=now_local(),
                         )
                         rec["image"] = raw_url
-                        logging.info(f"Saved WebP: {rel_path}")
+                        logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
                     else:
                         logging.warning("Could not create WebP; keeping original image URL.")
                 else:
                     logging.info("No image URL in entry; skip webp save.")
 
-                # Save updated daily file (because rec image changed)
-                today = now_local()
-                save_json_list(Path(day_path), load_json_list(Path(day_path))[:-1] + [rec])
+                # Update today's JSON so it contains the new GitHub raw image URL
+                day_path = Path(day_path_str)
+                day_records = load_json_list(day_path)
+                if day_records:
+                    day_records[-1] = rec  # last appended
+                    save_json_list(day_path, day_records)
 
                 # manifests + global index (will use rec with updated image URL)
+                today = now_local()
                 update_month_manifest(today)
                 update_year_manifest(today)
 
-                slim = convert_full_to_slim([rec], day_path)
+                slim = convert_full_to_slim([rec], day_path_str)
                 gi_append_records(slim)
 
                 write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
