@@ -1,8 +1,8 @@
-name: Content Bot (Crunchyroll + YouTube)
+name: Content Bot (C + Y)
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/40 * * * *'
   workflow_dispatch:
 
 jobs:
