@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>قراءة المقال</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <!-- Navbar -->
+  <header class="sticky top-0 z-50 backdrop-blur bg-white/80 border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <a href="index.html"
+             class="px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100">
+            ⬅ رجوع
+          </a>
+          <div class="hidden sm:flex items-center gap-2 text-xs text-slate-500">
+            <span class="px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">Article</span>
+            <span id="pathLabel" class="truncate max-w-[420px]">—</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <input id="navSearch" type="search" placeholder="بحث سريع…"
+              class="w-52 sm:w-64 rounded-2xl border border-slate-200 bg-white px-4 py-2 pr-9 outline-none focus:ring-2 focus:ring-slate-300">
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">🔎</span>
+          </div>
+
+          <a href="https://www.youtube.com/@Otakuichizoku25_7"
+             target="_blank"
+             class="hidden sm:inline-flex px-4 py-2 rounded-2xl bg-slate-900 text-white hover:opacity-90">
+            قناة اليوتيوب
+          </a>
+        </div>
+      </div>
+
+      <div class="sm:hidden text-xs text-slate-500 truncate" id="pathLabelMobile">—</div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Content -->
+      <section class="lg:col-span-8">
+        <article class="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+          <div id="hero" class="bg-slate-100"></div>
+
+          <div class="p-5 sm:p-7">
+            <h1 id="title" class="text-xl sm:text-2xl font-bold leading-snug">—</h1>
+
+            <div class="mt-4 flex flex-wrap gap-2" id="cats"></div>
+
+            <div class="mt-6">
+              <div id="content"
+                   class="whitespace-pre-wrap text-slate-700 text-sm sm:text-base leading-8">
+                جاري التحميل…
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Sidebar -->
+      <aside class="lg:col-span-4 space-y-4">
+        <!-- Related articles -->
+        <section class="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="font-bold">مقالات ذات صلة</h2>
+            <span id="relatedBadge" class="text-xs px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">—</span>
+          </div>
+          <div id="relatedList" class="mt-4 space-y-3 text-sm text-slate-700">
+            جاري التحميل…
+          </div>
+        </section>
+
+        <!-- YouTube block -->
+        <section class="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="font-bold">آخر فيديوهات اليوتيوب</h2>
+            <span id="ytBadge" class="text-xs px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">@Otakuichizoku25_7</span>
+          </div>
+
+          <!-- filters -->
+          <div class="mt-3 flex flex-wrap gap-2 text-xs">
+            <button class="ytFilterBtn px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-900 active:text-white"
+                    data-filter="*">الكل</button>
+            <button class="ytFilterBtn px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-100"
+                    data-filter="day">اليوم</button>
+            <button class="ytFilterBtn px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-100"
+                    data-filter="week">أسبوع</button>
+            <button class="ytFilterBtn px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-100"
+                    data-filter="month">شهر</button>
+            <button class="ytFilterBtn px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-100"
+                    data-filter="years">سنوات</button>
+          </div>
+
+          <div id="ytList" class="mt-4 space-y-3">
+            جاري التحميل…
+          </div>
+
+          <button id="ytLoadMore"
+                  type="button"
+                  class="mt-4 w-full px-4 py-2 rounded-2xl bg-slate-900 text-white hover:opacity-90 hidden">
+            عرض المزيد
+          </button>
+
+          <a href="https://www.youtube.com/@Otakuichizoku25_7/videos"
+             target="_blank"
+             class="mt-3 block text-center px-4 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100">
+            عرض المزيد من الفيديوهات (يوتيوب)
+          </a>
+
+          <p id="ytError" class="mt-3 text-xs text-rose-600 hidden"></p>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+<script>
+/** =========================
+ * CONFIG
+ * ========================= */
+const OWNER  = "bergham123";
+const REPO   = "anime-news-bot";
+const BRANCH = "main";
+const RAW_BASE = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/`;
+
+const YT_CHANNEL_ID = "UC1WGYjPeHHc_3nRXqbW3OcQ";
+const YT_FEED_URL   = `https://www.youtube.com/feeds/videos.xml?channel_id=${YT_CHANNEL_ID}`;
+
+const RELATED_LIMIT = 6;
+
+// YouTube paging
+const YT_PAGE_SIZE = 5;
+let ytAllItems = [];
+let ytVisibleCount = YT_PAGE_SIZE;
+let ytCurrentFilter = "*";
+
+/** =========================
+ * HELPERS
+ * ========================= */
+const el = (id) => document.getElementById(id);
+
+async function fetchJSON(path){
+  const url = RAW_BASE + path.replace(/^\//,"");
+  const res = await fetch(url, { cache:"no-store" });
+  if(!res.ok) throw new Error(`Fetch failed (${res.status}): ${path}`);
+  return res.json();
+}
+
+function getPathParam(){
+  const sp = new URLSearchParams(location.search);
+  return sp.get("path") || "";
+}
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+function normalizeTitle(s){
+  return String(s||"")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** =========================
+ * LAZY IMAGES (IntersectionObserver)
+ * ========================= */
+let lazyObserver = null;
+function observeLazyImages(root=document){
+  const imgs = root.querySelectorAll("img.lazy[data-src]");
+  if(!("IntersectionObserver" in window)){
+    imgs.forEach(img => { img.src = img.dataset.src; img.removeAttribute("data-src"); });
+    return;
+  }
+  if(!lazyObserver){
+    lazyObserver = new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting) return;
+        const img = entry.target;
+        const real = img.dataset.src;
+        if(real){
+          img.src = real;
+          img.removeAttribute("data-src");
+        }
+        lazyObserver.unobserve(img);
+      });
+    }, { rootMargin: "400px" });
+  }
+  imgs.forEach(img => lazyObserver.observe(img));
+}
+
+/** =========================
+ * NAV SEARCH -> index.html?q=
+ * ========================= */
+function wireNavSearch(){
+  el("navSearch").addEventListener("keydown", (e)=>{
+    if(e.key !== "Enter") return;
+    const q = e.target.value.trim();
+    if(!q) return;
+    location.href = `index.html?q=${encodeURIComponent(q)}`;
+  });
+}
+
+/** =========================
+ * ARTICLE LOAD
+ * ========================= */
+let currentArticle = null;
+let currentFilePath = "";
+let currentIndex = -1;
+
+async function loadArticle(){
+  const fullPath = getPathParam();
+  el("pathLabel").textContent = fullPath || "—";
+  el("pathLabelMobile").textContent = fullPath || "—";
+
+  if(!fullPath.includes("#")){
+    el("content").textContent = "path غير صالح. رجع للصفحة الرئيسية.";
+    return;
+  }
+
+  const [filePath, hash] = fullPath.split("#");
+  const idx = Number(hash);
+  if(Number.isNaN(idx)) throw new Error("Invalid index");
+
+  currentFilePath = filePath;
+  currentIndex = idx;
+
+  const dayItems = await fetchJSON(filePath);
+  const article = dayItems[idx];
+  if(!article) throw new Error("Article not found");
+  currentArticle = article;
+
+  document.title = article.title || "قراءة المقال";
+  el("title").textContent = article.title || "—";
+
+  if(article.image){
+    el("hero").innerHTML = `
+      <img class="lazy w-full max-h-[420px] object-cover"
+           alt=""
+           data-src="${escapeHtml(article.image)}"
+           src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='600'%3E%3C/svg%3E">
+    `;
+  } else {
+    el("hero").innerHTML = `<div class="aspect-video grid place-items-center text-slate-400">No Image</div>`;
+  }
+
+  el("cats").innerHTML = (article.categories||[]).map(c =>
+    `<span class="text-xs px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200">${escapeHtml(c)}</span>`
+  ).join("");
+
+  el("content").textContent = article.description_full || "لا يوجد وصف كامل.";
+
+  observeLazyImages();
+
+  // sidebar
+  await Promise.allSettled([loadRelatedArticles(), initYouTubeWidget()]);
+}
+
+/** =========================
+ * RELATED ARTICLES
+ * ========================= */
+async function loadRelatedArticles(){
+  el("relatedList").textContent = "جاري التحميل…";
+
+  const cats = (currentArticle?.categories || []);
+  const primaryCat = cats[0] || "";
+  el("relatedBadge").textContent = primaryCat ? primaryCat : "—";
+
+  if(!primaryCat){
+    el("relatedList").innerHTML = `<div class="text-slate-500 text-sm">لا توجد تصنيفات.</div>`;
+    return;
+  }
+
+  const pagination = await fetchJSON("global_index/pagination.json");
+  const files = pagination.files || [];
+
+  const out = [];
+  const seen = new Set();
+  const selfPath = `${currentFilePath}#${currentIndex}`;
+
+  for(const f of files){
+    const items = await fetchJSON(`global_index/${f}`);
+    for(const it of items){
+      if(!(it.categories||[]).includes(primaryCat)) continue;
+      if(it.path === selfPath) continue;
+
+      const k = normalizeTitle(it.title || "") + "||" + (it.image||"");
+      if(seen.has(k)) continue;
+      seen.add(k);
+
+      out.push(it);
+      if(out.length >= RELATED_LIMIT) break;
+    }
+    if(out.length >= RELATED_LIMIT) break;
+  }
+
+  if(out.length === 0){
+    el("relatedList").innerHTML = `<div class="text-slate-500 text-sm">لا توجد مقالات مشابهة حالياً.</div>`;
+    return;
+  }
+
+  el("relatedList").innerHTML = out.map(it => `
+    <a href="article.html?path=${encodeURIComponent(it.path)}"
+       class="group flex gap-3 p-2 rounded-2xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition">
+      <div class="w-20 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0">
+        ${it.image ? `
+          <img class="lazy w-full h-full object-cover" alt=""
+               data-src="${escapeHtml(it.image)}"
+               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='112'%3E%3C/svg%3E">
+        ` : `<div class="w-full h-full grid place-items-center text-slate-400 text-xs">No Image</div>`}
+      </div>
+      <div class="min-w-0">
+        <div class="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:underline">
+          ${escapeHtml(it.title || "—")}
+        </div>
+        <div class="mt-1 text-xs text-slate-500 truncate">${escapeHtml(it.path || "")}</div>
+      </div>
+    </a>
+  `).join("");
+
+  observeLazyImages(el("relatedList"));
+}
+
+/** =========================
+ * YOUTUBE (RSS) — using your logic
+ * ========================= */
+const PROXIES = [
+  url => url,
+  url => "https://cors.isomorphic-git.org/" + url,
+  url => "https://corsproxy.io/?" + encodeURIComponent(url)
+];
+
+const parseXML = (xmlText) =>
+  new window.DOMParser().parseFromString(xmlText, "application/xml");
+
+const getText = (root, sel) => root.querySelector(sel)?.textContent?.trim() || "";
+
+function timeDiffMs(dateStr) {
+  const t = new Date(dateStr).getTime();
+  return Number.isNaN(t) ? 0 : (Date.now() - t);
+}
+
+function timeAgo(dateStr){
+  const ms = timeDiffMs(dateStr);
+  if(ms <= 0) return "الآن";
+  const sec = Math.floor(ms/1000);
+  const min = Math.floor(sec/60);
+  const hr  = Math.floor(min/60);
+  const day = Math.floor(hr/24);
+  const wk  = Math.floor(day/7);
+  const mo  = Math.floor(day/30);
+  const yr  = Math.floor(day/365);
+  const fmt = (n, s) => n<=1 ? `منذ ${s}` : `منذ ${n} ${s}`;
+  if(sec < 60) return fmt(sec, "ثانية");
+  if(min < 60) return fmt(min, "دقيقة");
+  if(hr  < 24) return fmt(hr,  "ساعة");
+  if(day < 7)  return fmt(day, "يوم");
+  if(wk  < 5)  return fmt(wk,  "أسبوع");
+  if(mo  < 12) return fmt(mo,  "شهر");
+  return fmt(yr, "سنة");
+}
+
+// صنّف حسب العمر: day (<1), week (<7), month (<30), years (≥365)
+function ageClasses(pubDateStr) {
+  const d = (Date.now() - new Date(pubDateStr).getTime()) / (1000*60*60*24);
+  const classes = [];
+  if (d < 1)    classes.push("day");
+  if (d < 7)    classes.push("week");
+  if (d < 30)   classes.push("month");
+  if (d >= 365) classes.push("years");
+  return classes;
+}
+
+async function fetchYouTubeRSS(url) {
+  let lastErr;
+  for (const make of PROXIES) {
+    try {
+      const res = await fetch(make(url), { cache: "no-store" });
+      if (!res.ok) throw new Error(res.status + " " + res.statusText);
+      const text = await res.text();
+      const xml = parseXML(text);
+      if (xml.querySelector("parsererror")) throw new Error("XML parse error");
+      return xml;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("Failed to fetch RSS.");
+}
+
+function extractVideoId(link){
+  const m = link.match(/v=([a-zA-Z0-9_-]{11})|\/shorts\/([a-zA-Z0-9_-]{11})|\/embed\/([a-zA-Z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || "";
+}
+
+function applyYtFilterAndPaging(){
+  const list = ytAllItems.filter(it => {
+    if(ytCurrentFilter === "*" || !ytCurrentFilter) return true;
+    return it.age.includes(ytCurrentFilter);
+  });
+
+  const visible = list.slice(0, ytVisibleCount);
+
+  el("ytList").innerHTML = visible.map(v => {
+    const thumb = v.thumb || (v.vid ? `https://i.ytimg.com/vi/${v.vid}/hqdefault.jpg` : "");
+    return `
+      <a href="${escapeHtml(v.link)}" target="_blank" rel="noopener"
+         class="group flex gap-3 p-2 rounded-2xl hover:bg-slate-50 border border-transparent hover:border-slate-200 transition">
+        <div class="w-20 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0">
+          ${thumb ? `
+            <img class="lazy w-full h-full object-cover" alt=""
+                 data-src="${escapeHtml(thumb)}"
+                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='112'%3E%3C/svg%3E">
+          ` : `<div class="w-full h-full grid place-items-center text-slate-400 text-xs">No Thumb</div>`}
+        </div>
+        <div class="min-w-0">
+          <div class="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:underline">
+            ${escapeHtml(v.title)}
+          </div>
+          <div class="mt-1 text-xs text-slate-500 flex items-center gap-2">
+            <span>⏱️ ${timeAgo(v.pub)}</span>
+          </div>
+        </div>
+      </a>
+    `;
+  }).join("");
+
+  observeLazyImages(el("ytList"));
+
+  // load more visibility
+  el("ytLoadMore").classList.toggle("hidden", list.length <= ytVisibleCount);
+}
+
+function wireYtFilters(){
+  const btns = Array.from(document.querySelectorAll(".ytFilterBtn"));
+  // default: first active (الكل)
+  btns.forEach((b, i) => {
+    if(i === 0) b.classList.add("bg-slate-900", "text-white", "border-slate-900");
+  });
+
+  btns.forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      btns.forEach(b=>{
+        b.classList.remove("bg-slate-900","text-white","border-slate-900");
+        b.classList.add("bg-white");
+      });
+      btn.classList.add("bg-slate-900","text-white","border-slate-900");
+      ytCurrentFilter = btn.getAttribute("data-filter") || "*";
+      ytVisibleCount = YT_PAGE_SIZE;
+      applyYtFilterAndPaging();
+    });
+  });
+
+  el("ytLoadMore").addEventListener("click", ()=>{
+    ytVisibleCount += YT_PAGE_SIZE;
+    applyYtFilterAndPaging();
+  });
+}
+
+async function initYouTubeWidget(){
+  try{
+    el("ytError").classList.add("hidden");
+    el("ytList").textContent = "جاري التحميل…";
+
+    const xml = await fetchYouTubeRSS(YT_FEED_URL);
+    const entries = [...xml.querySelectorAll("entry")];
+
+    ytAllItems = entries.map((en) => {
+      const title = getText(en, "title");
+      const link  = en.querySelector("link")?.getAttribute("href") || "";
+      const pub   = getText(en, "published") || getText(en, "updated");
+      const vid   = extractVideoId(link);
+
+      // try media:thumbnail
+      let thumb = "";
+      const mThumb = en.querySelector("media\\:thumbnail") || en.querySelector("thumbnail");
+      if (mThumb && mThumb.getAttribute) thumb = mThumb.getAttribute("url") || "";
+      if (!thumb && vid) thumb = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+
+      return { title, link, pub, vid, thumb, age: ageClasses(pub) };
+    });
+
+    // newest first
+    ytAllItems.sort((a,b)=> new Date(b.pub) - new Date(a.pub));
+
+    wireYtFilters();
+    ytVisibleCount = YT_PAGE_SIZE;
+    ytCurrentFilter = "*";
+    applyYtFilterAndPaging();
+  }catch(err){
+    console.error(err);
+    el("ytList").innerHTML = "";
+    el("ytError").classList.remove("hidden");
+    el("ytError").textContent = `تعذّر جلب RSS من YouTube: ${err?.message || String(err)}`;
+  }
+}
+
+/** =========================
+ * START
+ * ========================= */
+wireNavSearch();
+loadArticle().catch(err=>{
+  console.error(err);
+  el("content").textContent = String(err.message || err);
+});
+</script>
+</body>
+</html>
