@@ -88,5 +88,16 @@
     "created_at": "2026-02-13T10:26:29.900175+01:00",
     "updated_at": "2026-02-13T10:26:32.044466+01:00",
     "path": "data/2026/02/13-02.json#0"
+  },
+  {
+    "id": "f4db033d10e0",
+    "title": "أنمي Sparks of Tomorrow يقدم أربع شخصيات جديدة في المقطع القصير الأحدث",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/02/أنمي-sparks-of-tomorrow-يقدم-أربع-شخصيات-جديدة-في-المقطع-الق-f4db033d10e0.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-02-14T09:38:20.055239+01:00",
+    "updated_at": "2026-02-14T09:38:23.469598+01:00",
+    "path": "data/2026/02/14-02.json#0"
   }
 ]
