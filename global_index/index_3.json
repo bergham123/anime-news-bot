@@ -363,5 +363,16 @@
     "created_at": "2026-02-23T16:55:16.405500+00:00",
     "updated_at": "2026-02-23T16:55:18.801384+00:00",
     "path": "data/2026/02/23-02.json#0"
+  },
+  {
+    "id": "33563bc32aca",
+    "title": "الإعلان رسمياً عن سلسلة جديدة لأنمي Evangelion قيد الإنتاج",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/02/الإعلان-رسمياً-عن-سلسلة-جديدة-لأنمي-evangelion-قيد-الإنتاج-33563bc32aca.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-02-23T17:59:56.614980+00:00",
+    "updated_at": "2026-02-23T17:59:59.052713+00:00",
+    "path": "data/2026/02/23-02.json#0"
   }
 ]
