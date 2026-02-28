@@ -484,5 +484,16 @@
     "created_at": "2026-02-27T17:08:02.024925+00:00",
     "updated_at": "2026-02-27T17:08:04.638832+00:00",
     "path": "data/2026/02/27-02.json#0"
+  },
+  {
+    "id": "63ee3d2b9201",
+    "title": "المقطع الدعائي الأحدث لأنمي Go For It, Nakamura-kun!! يكشف عن موعد العرض المقرر في 1 أبريل 2026",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/02/المقطع-الدعائي-الأحدث-لأنمي-go-for-it-nakamura-kun-يكشف-عن-م-63ee3d2b9201.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-02-28T21:49:23.226636+00:00",
+    "updated_at": "2026-02-28T21:49:25.862972+00:00",
+    "path": "data/2026/02/28-02.json#0"
   }
 ]
