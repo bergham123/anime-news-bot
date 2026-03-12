@@ -889,5 +889,16 @@
     "created_at": "2026-03-11T23:24:45.980738+00:00",
     "updated_at": "2026-03-11T23:24:48.364467+00:00",
     "path": "data/2026/03/11-03.json#0"
+  },
+  {
+    "id": "babb76dcde10",
+    "title": "المقطع الدعائي الجديد لأنمي Fist of the North Star: Hokuto no Ken يستعرض الشارة الافتتاحية وموعد العرض المقرر في 10 أبريل 2026",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/03/المقطع-الدعائي-الجديد-لأنمي-fist-of-the-north-star-hokuto-no-babb76dcde10.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-03-12T16:40:36.661249+00:00",
+    "updated_at": "2026-03-12T16:40:39.611998+00:00",
+    "path": "data/2026/03/12-03.json#0"
   }
 ]
