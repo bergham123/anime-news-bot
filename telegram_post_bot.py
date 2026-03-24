@@ -29,7 +29,6 @@ TZ = ZoneInfo("Africa/Casablanca")
 # Bot tokens
 ADMIN_BOT_TOKEN = "8431670547:AAEo7_J_YTm5fKgrKN1hDUcCJg9cV3DYsd8"
 MAIN_BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")  # Your existing bot token
-
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # Admin user IDs (add your Telegram user ID here)
@@ -69,7 +68,7 @@ HTTP_TIMEOUT = 25
     WAITING_TITLE,
     WAITING_DESCRIPTION,
     WAITING_FULL_DESCRIPTION,
-    WAITING_IMAGE,
+    WAITING_IMAGE_URL,
     WAITING_CATEGORY,
     WAITING_CONFIRM
 ) = range(6)
@@ -154,9 +153,10 @@ def build_article_url(day_path: str, idx: int) -> str:
 
 
 # ====================
-# Image Processing
+# Image Processing with Logo
 # ====================
 def fetch_image(url: str) -> Image.Image | None:
+    """Fetch image from URL"""
     try:
         r = requests.get(url, timeout=HTTP_TIMEOUT)
         r.raise_for_status()
@@ -168,6 +168,7 @@ def fetch_image(url: str) -> Image.Image | None:
         return None
 
 def downscale_to_fit(im: Image.Image) -> Image.Image:
+    """Resize image to fit within limits"""
     w, h = im.size
     scale = min(
         (MAX_IMAGE_WIDTH / w) if w > 0 else 1,
@@ -181,27 +182,36 @@ def downscale_to_fit(im: Image.Image) -> Image.Image:
     return im
 
 def overlay_logo(im: Image.Image) -> Image.Image:
+    """Add logo overlay to image"""
     if not Path(LOGO_PATH).exists():
+        logging.warning(f"Logo file not found: {LOGO_PATH}")
         return im
+    
     try:
         logo = Image.open(LOGO_PATH).convert("RGBA")
+        
+        pw, ph = im.size
+        lw_ratio = LOGO_MIN_WIDTH_RATIO if pw < 600 else LOGO_MAX_WIDTH_RATIO
+        lw = int(max(1, min(pw - 2 * LOGO_MARGIN, pw * lw_ratio)))
+        ratio = lw / logo.width
+        lh = int(max(1, logo.height * ratio))
+        
+        logo_resized = logo.resize((lw, lh), Image.LANCZOS)
+        
+        x = pw - lw - LOGO_MARGIN
+        y = LOGO_MARGIN
+        im.paste(logo_resized, (x, y), logo_resized)
+        return im
+        
     except Exception as e:
-        logging.error(f"Failed to open logo: {e}")
+        logging.error(f"Failed to overlay logo: {e}")
         return im
 
-    pw, _ = im.size
-    lw_ratio = LOGO_MIN_WIDTH_RATIO if pw < 600 else LOGO_MAX_WIDTH_RATIO
-    lw = int(max(1, min(pw - 2 * LOGO_MARGIN, pw * lw_ratio)))
-    ratio = lw / logo.width
-    lh = int(max(1, logo.height * ratio))
-    logo_resized = logo.resize((lw, lh), Image.LANCZOS)
-
-    x = pw - lw - LOGO_MARGIN
-    y = LOGO_MARGIN
-    im.paste(logo_resized, (x, y), logo_resized)
-    return im
-
 def process_image_with_logo(url: str, out_format: str = "WEBP") -> BytesIO | None:
+    """Process image: fetch, resize, add logo, save to bytes"""
+    if not url:
+        return None
+    
     base = fetch_image(url)
     if base is None:
         return None
@@ -214,39 +224,61 @@ def process_image_with_logo(url: str, out_format: str = "WEBP") -> BytesIO | Non
 
     try:
         if fmt == "WEBP":
-            base.convert("RGB").save(out, format="WEBP", quality=WEBP_QUALITY, method=6)
+            if base.mode != 'RGB':
+                base = base.convert('RGB')
+            base.save(out, format="WEBP", quality=WEBP_QUALITY, method=6, optimize=True)
         else:
-            base.convert("RGB").save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+            if base.mode != 'RGB':
+                base = base.convert('RGB')
+            base.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        
         out.seek(0)
         return out
     except Exception as e:
-        logging.error(f"Failed to save image: {e}")
+        logging.error(f"Failed to save processed image: {e}")
         return None
 
-def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str, bool]:
+def save_image_to_repo(title: str, image_url: str, dt: datetime) -> tuple[str, str, bool]:
+    """
+    Save processed image with logo to repository.
+    Returns: (rel_path, raw_url, created_new_file)
+    """
+    if not image_url:
+        return None, None, False
+    
+    # Process image with logo
+    webp_bytes = process_image_with_logo(image_url, out_format="WEBP")
+    if not webp_bytes:
+        logging.warning(f"Could not process image: {image_url}")
+        return None, None, False
+    
+    # Save to repo
     y, m = dt.year, dt.month
     out_dir = IMAGES_DIR / f"{y}" / f"{m:02d}"
     ensure_dir(out_dir)
-
-    filename = stable_image_filename(title, original_url)
+    
+    filename = stable_image_filename(title, image_url)
     file_path = out_dir / filename
     rel_path = file_path.as_posix()
     raw_url = build_raw_github_url(rel_path)
-
+    
     if file_path.exists():
+        logging.info(f"Image already exists: {rel_path}")
         return rel_path, raw_url, False
-
+    
     webp_bytes.seek(0)
     file_path.write_bytes(webp_bytes.read())
+    logging.info(f"Saved new image: {rel_path}")
     return rel_path, raw_url, True
 
 
 # ====================
 # Article Management
 # ====================
-def save_article(article_data: dict) -> tuple[str, int]:
+def save_article_to_daily(article_data: dict) -> tuple[str, int]:
     """
-    Save article to daily JSON and return (day_path_str, idx)
+    Save article to daily JSON file.
+    Returns: (day_path_str, idx)
     """
     today = now_local()
     path = daily_path(today)
@@ -257,6 +289,10 @@ def save_article(article_data: dict) -> tuple[str, int]:
     article_data["id"] = stable_article_id(article_data["title"], article_data.get("image", ""))
     article_data["created_at"] = now_iso
     article_data["updated_at"] = now_iso
+    
+    # Ensure categories is a list
+    if isinstance(article_data.get("categories"), str):
+        article_data["categories"] = [article_data["categories"]]
     
     existing.append(article_data)
     save_json_list(path, existing)
@@ -304,8 +340,8 @@ def update_manifests(dt: datetime):
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
-def update_global_index(article: dict, day_path_str: str, idx: int):
-    """Add article to global index"""
+def add_to_global_index(article: dict, day_path_str: str, idx: int):
+    """Add article to global index files"""
     # Load pagination
     pag_path = GLOBAL_INDEX / "pagination.json"
     ensure_dir(GLOBAL_INDEX)
@@ -326,11 +362,11 @@ def update_global_index(article: dict, day_path_str: str, idx: int):
     current_file = GLOBAL_INDEX / current_filename
     items = load_json_list(current_file)
     
-    # Create slim record
+    # Create slim record (same format as your existing bot)
     slim_record = {
         "id": article.get("id"),
         "title": article.get("title"),
-        "image": article.get("image"),
+        "image": article.get("image"),  # This will be the GitHub raw URL after processing
         "categories": article.get("categories", []),
         "created_at": article.get("created_at"),
         "updated_at": article.get("updated_at"),
@@ -349,8 +385,13 @@ def update_global_index(article: dict, day_path_str: str, idx: int):
     items.append(slim_record)
     save_json_list(current_file, items)
     
-    # Update pagination
-    pagination["total_articles"] = len(items) + sum(len(load_json_list(GLOBAL_INDEX / f)) for f in pagination["files"][:-1])
+    # Update total count
+    total_articles = 0
+    for file in pagination["files"]:
+        file_path = GLOBAL_INDEX / file
+        total_articles += len(load_json_list(file_path))
+    
+    pagination["total_articles"] = total_articles
     
     with open(pag_path, "w", encoding="utf-8") as f:
         json.dump(pagination, f, ensure_ascii=False, indent=2)
@@ -358,8 +399,7 @@ def update_global_index(article: dict, day_path_str: str, idx: int):
     # Update stats
     stats_path = GLOBAL_INDEX / "stats.json"
     stats = {
-        "total_articles": pagination["total_articles"],
-        "added_today": 1,  # Simplified
+        "total_articles": total_articles,
         "last_update": iso_now()
     }
     with open(stats_path, "w", encoding="utf-8") as f:
@@ -401,7 +441,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2. أدخل عنوان المقال\n"
         "3. أدخل وصف قصير للمقال\n"
         "4. أدخل الوصف الكامل (اختياري)\n"
-        "5. أرسل صورة للمقال (اختياري)\n"
+        "5. أرسل رابط صورة المقال (مثل: https://example.com/image.jpg)\n"
         "6. اختر التصنيف المناسب\n"
         "7. قم بتأكيد الإضافة\n\n"
         "يمكنك استخدام /cancel في أي وقت لإلغاء العملية.",
@@ -451,11 +491,11 @@ async def receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("❌ الوصف قصير جداً. الرجاء إدخال وصف أطول (10 أحرف على الأقل).")
         return WAITING_DESCRIPTION
     
-    context.user_data['description'] = description
+    context.user_data['description_short'] = description
     
     await update.message.reply_text(
         f"✅ تم حفظ الوصف القصير.\n\n"
-        "الآن الرجاء إرسال الوصف الكامل للمقال (اختياري):\n"
+        "الآن الرجاء إرسال الوصف الكامل للمقال:\n"
         "(يمكنك إرسال /skip للتخطي)",
         parse_mode='Markdown'
     )
@@ -464,62 +504,87 @@ async def receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def receive_full_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Receive full article description"""
     full_description = update.message.text.strip()
-    context.user_data['full_description'] = full_description
+    context.user_data['description_full'] = full_description
     
     await update.message.reply_text(
         "✅ تم حفظ الوصف الكامل.\n\n"
-        "الآن الرجاء إرسال صورة للمقال (اختياري):\n"
-        "(أرسل الصورة أو استخدم /skip للتخطي)",
+        "الآن الرجاء إرسال رابط صورة المقال:\n"
+        "(مثال: https://example.com/image.jpg)",
         parse_mode='Markdown'
     )
-    return WAITING_IMAGE
+    return WAITING_IMAGE_URL
 
 async def skip_full_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Skip full description"""
-    context.user_data['full_description'] = ""
+    context.user_data['description_full'] = ""
     
     await update.message.reply_text(
         "⏭️ تم تخطي الوصف الكامل.\n\n"
-        "الآن الرجاء إرسال صورة للمقال (اختياري):\n"
-        "(أرسل الصورة أو استخدم /skip للتخطي)",
+        "الآن الرجاء إرسال رابط صورة المقال:\n"
+        "(مثال: https://example.com/image.jpg)",
         parse_mode='Markdown'
     )
-    return WAITING_IMAGE
+    return WAITING_IMAGE_URL
 
-async def receive_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive article image"""
-    photo = update.message.photo[-1]  # Get highest quality
-    file = await photo.get_file()
+async def receive_image_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive image URL"""
+    image_url = update.message.text.strip()
     
-    # Download image
-    image_bytes = BytesIO()
-    await file.download_to_memory(image_bytes)
-    image_bytes.seek(0)
+    # Validate URL
+    if not image_url.startswith(('http://', 'https://')):
+        await update.message.reply_text(
+            "❌ الرابط غير صحيح. الرجاء إرسال رابط صحيح يبدأ بـ http:// أو https://"
+        )
+        return WAITING_IMAGE_URL
     
-    # Save to temporary location or process directly
-    context.user_data['image_bytes'] = image_bytes
-    context.user_data['image_url'] = None  # Will be processed later
+    # Test if URL is accessible
+    try:
+        response = requests.head(image_url, timeout=10)
+        if response.status_code != 200:
+            await update.message.reply_text(
+                "⚠️ تحذير: الرابط قد لا يكون صالحاً. هل تريد المتابعة؟\n"
+                "أرسل /yes للمتابعة أو أي رابط آخر للمحاولة مرة أخرى."
+            )
+            context.user_data['pending_image_url'] = image_url
+            return WAITING_IMAGE_URL
+    except:
+        await update.message.reply_text(
+            "⚠️ تحذير: لا يمكن الوصول إلى الرابط. هل تريد المتابعة؟\n"
+            "أرسل /yes للمتابعة أو أي رابط آخر للمحاولة مرة أخرى."
+        )
+        context.user_data['pending_image_url'] = image_url
+        return WAITING_IMAGE_URL
+    
+    context.user_data['image_url'] = image_url
     
     await update.message.reply_text(
-        "✅ تم استلام الصورة.\n\n"
+        "✅ تم استلام رابط الصورة.\n\n"
         "الآن الرجاء اختيار التصنيف المناسب:",
         reply_markup=get_category_keyboard(),
         parse_mode='Markdown'
     )
     return WAITING_CATEGORY
 
-async def skip_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Skip image upload"""
-    context.user_data['image_bytes'] = None
-    context.user_data['image_url'] = None
+async def confirm_image_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Confirm to use the image URL even if there were warnings"""
+    text = update.message.text.strip()
     
-    await update.message.reply_text(
-        "⏭️ تم تخطي الصورة.\n\n"
-        "الآن الرجاء اختيار التصنيف المناسب:",
-        reply_markup=get_category_keyboard(),
-        parse_mode='Markdown'
-    )
-    return WAITING_CATEGORY
+    if text.lower() == '/yes':
+        context.user_data['image_url'] = context.user_data.get('pending_image_url')
+        
+        await update.message.reply_text(
+            "✅ تم استخدام الرابط.\n\n"
+            "الآن الرجاء اختيار التصنيف المناسب:",
+            reply_markup=get_category_keyboard(),
+            parse_mode='Markdown'
+        )
+        return WAITING_CATEGORY
+    else:
+        # Continue waiting for a new URL
+        await update.message.reply_text(
+            "الرجاء إرسال رابط صورة آخر:"
+        )
+        return WAITING_IMAGE_URL
 
 def get_category_keyboard():
     """Create inline keyboard for categories"""
@@ -542,16 +607,18 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Show preview and confirmation
     title = context.user_data.get('title', 'N/A')
-    description = context.user_data.get('description', 'N/A')
-    full_desc = context.user_data.get('full_description', 'غير موجود')
+    description_short = context.user_data.get('description_short', 'N/A')
+    description_full = context.user_data.get('description_full', 'غير موجود')
+    image_url = context.user_data.get('image_url', 'غير موجود')
     
+    # Show image preview if available
     preview_text = (
         f"📝 *معاينة المقال*\n\n"
         f"*العنوان:* {title}\n"
-        f"*الوصف القصير:* {description}\n"
-        f"*الوصف الكامل:* {full_desc[:100]}...\n"
+        f"*الوصف القصير:* {description_short}\n"
+        f"*الوصف الكامل:* {description_full[:100]}...\n"
         f"*التصنيف:* {category}\n"
-        f"*الصورة:* {'✅ موجودة' if context.user_data.get('image_bytes') else '❌ غير موجودة'}\n\n"
+        f"*صورة المقال:* {image_url[:50]}...\n\n"
         f"هل تريد حفظ هذا المقال؟"
     )
     
@@ -566,7 +633,8 @@ async def receive_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         preview_text,
         parse_mode='Markdown',
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        disable_web_page_preview=True
     )
     return WAITING_CONFIRM
 
@@ -582,58 +650,58 @@ async def confirm_article(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Process and save article
     try:
+        await query.edit_message_text("⏳ جاري حفظ المقال ومعالجة الصورة...")
+        
         # Prepare article data
+        title = context.user_data.get('title')
+        image_url = context.user_data.get('image_url')
+        
+        # Process image with logo and save to repo
+        processed_image_url = None
+        if image_url:
+            today = now_local()
+            rel_path, raw_url, created = save_image_to_repo(title, image_url, today)
+            if raw_url:
+                processed_image_url = raw_url
+                logging.info(f"Image saved to: {rel_path}")
+            else:
+                # Use original URL if processing failed
+                processed_image_url = image_url
+                logging.warning(f"Using original image URL: {image_url}")
+        
+        # Create article record
         article_data = {
-            "title": context.user_data.get('title'),
-            "description_full": context.user_data.get('full_description', ''),
-            "description_short": context.user_data.get('description'),
+            "title": title,
+            "description_full": context.user_data.get('description_full', ''),
+            "description_short": context.user_data.get('description_short'),
             "categories": [context.user_data.get('category')],
-            "image": None
+            "image": processed_image_url or image_url
         }
         
-        # Process image if exists
-        image_url = None
-        if context.user_data.get('image_bytes'):
-            # Save temporary image to process
-            temp_image = BytesIO(context.user_data['image_bytes'].getvalue())
-            temp_image.seek(0)
-            
-            # Upload to temporary service or process directly
-            # For now, we'll assume we have a direct URL or skip
-            # In production, you'd want to upload to a service or use GitHub directly
-            
-            # Create WebP with logo
-            # Since we have the image bytes, we can process it directly
-            # This part needs adjustment based on your image hosting solution
-            
-            # For now, we'll set a placeholder
-            image_url = "https://via.placeholder.com/800x400?text=Image+Processing"
-        
-        article_data["image"] = image_url
-        
         # Save to daily JSON
-        day_path_str, idx = save_article(article_data)
-        
-        # Process image if needed (you'll need to implement image upload to GitHub)
-        if context.user_data.get('image_bytes'):
-            # Here you would upload the image to GitHub via API
-            # For now, we'll just log
-            logging.info(f"Image would be uploaded for article: {article_data['title']}")
+        day_path_str, idx = save_article_to_daily(article_data)
         
         # Update manifests
         update_manifests(now_local())
         
-        # Update global index
-        update_global_index(article_data, day_path_str, idx)
+        # Add to global index
+        add_to_global_index(article_data, day_path_str, idx)
         
-        # Send confirmation
+        # Build article URL
         article_url = build_article_url(day_path_str, idx)
-        await query.edit_message_text(
+        
+        # Send success message
+        success_text = (
             f"✅ *تم حفظ المقال بنجاح!*\n\n"
-            f"📄 *العنوان:* {article_data['title']}\n"
+            f"📄 *العنوان:* {title}\n"
             f"📂 *التصنيف:* {article_data['categories'][0]}\n"
+            f"🖼️ *الصورة:* {'✅ معالجة مع شعار' if processed_image_url else '❌ بدون صورة'}\n"
             f"🔗 *رابط المقال:*\n{article_url}\n\n"
-            f"سيظهر المقال قريباً في الموقع.",
+            f"سيظهر المقال قريباً في الموقع."
+        )
+        
+        await query.edit_message_text(
+            success_text,
             parse_mode='Markdown',
             disable_web_page_preview=True
         )
@@ -642,17 +710,29 @@ async def confirm_article(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if MAIN_BOT_TOKEN and TELEGRAM_CHAT_ID:
             try:
                 main_bot = Application.builder().token(MAIN_BOT_TOKEN).build()
-                await main_bot.bot.send_message(
-                    chat_id=TELEGRAM_CHAT_ID,
-                    text=f"📢 *مقال جديد*\n\n{article_data['title']}\n\n{article_url}",
-                    parse_mode='Markdown',
-                    disable_web_page_preview=True
-                )
+                
+                # Send to main channel with processed image if available
+                if processed_image_url:
+                    await main_bot.bot.send_photo(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        photo=processed_image_url,
+                        caption=f"📢 *مقال جديد*\n\n{title}\n\n{article_url}",
+                        parse_mode='Markdown'
+                    )
+                else:
+                    await main_bot.bot.send_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        text=f"📢 *مقال جديد*\n\n{title}\n\n{article_url}",
+                        parse_mode='Markdown',
+                        disable_web_page_preview=True
+                    )
             except Exception as e:
                 logging.error(f"Failed to send to main channel: {e}")
         
+        logging.info(f"Article saved successfully: {title}")
+        
     except Exception as e:
-        logging.error(f"Error saving article: {e}")
+        logging.error(f"Error saving article: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ حدث خطأ أثناء حفظ المقال: {str(e)}\n"
             f"الرجاء المحاولة مرة أخرى لاحقاً."
@@ -692,9 +772,9 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_full_description),
                 CommandHandler('skip', skip_full_description)
             ],
-            WAITING_IMAGE: [
-                MessageHandler(filters.PHOTO, receive_image),
-                CommandHandler('skip', skip_image)
+            WAITING_IMAGE_URL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_image_url),
+                CommandHandler('yes', confirm_image_url)
             ],
             WAITING_CATEGORY: [CallbackQueryHandler(receive_category, pattern='^cat_')],
             WAITING_CONFIRM: [CallbackQueryHandler(confirm_article, pattern='^confirm_')],
@@ -709,6 +789,8 @@ def main():
     
     # Start the bot
     print("🤖 Admin bot is running...")
+    print(f"Bot username: @ToolsocialBot")
+    print(f"Commands: /start, /add_article, /help, /cancel")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
