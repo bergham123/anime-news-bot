@@ -2,9 +2,9 @@ name: Admin Post Bot
 
 on:
   workflow_dispatch:
-  # Optional: Run on schedule if you want to keep it alive
-  # schedule:
-  #   - cron: '*/30 * * * *'
+  # Run every 5 minutes to keep the bot alive and process any pending actions
+  schedule:
+    - cron: '*/5 * * * *'
 
 jobs:
   run-admin-bot:
@@ -33,8 +33,9 @@ jobs:
           mkdir -p data
           mkdir -p global_index
           mkdir -p images
-          touch last_crunchyroll_fp.txt || true
-          touch last_youtube_id.txt || true
+          # Create empty state files if they don't exist
+          touch last_crunchyroll_fp.txt 2>/dev/null || true
+          touch last_youtube_id.txt 2>/dev/null || true
 
       - name: Run admin post bot
         env:
