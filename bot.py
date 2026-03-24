@@ -221,15 +221,26 @@ def extract_categories(entry) -> list:
                 cats.append(str(term))
     return cats
 
-def build_daily_record(entry) -> dict:
+def build_daily_record(entry, source_type="crunchyroll") -> dict:
     """
     Adds: id, created_at, updated_at
     id is stable based on title + ORIGINAL image url
     """
-    title = getattr(entry, "title", "") or ""
-    description_full = extract_full_text(entry)
-    image = extract_image(entry)  # ORIGINAL url (important for stable id)
-    categories = extract_categories(entry)
+    if source_type == "youtube":
+        title = entry.get("title", "") or ""
+        description_full = entry.get("description", "") or ""
+        image = entry.get("thumbnail_url", "") or ""
+        categories = ["فيديو"]  # Video category in Arabic
+        video_url = entry.get("video_url", "") or ""
+        
+        # Add video URL to description
+        if video_url:
+            description_full = f"{description_full}\n\n🎬 مشاهدة الفيديو: {video_url}" if description_full else f"🎬 مشاهدة الفيديو: {video_url}"
+    else:
+        title = getattr(entry, "title", "") or ""
+        description_full = extract_full_text(entry)
+        image = extract_image(entry)  # ORIGINAL url (important for stable id)
+        categories = extract_categories(entry)
 
     now_iso = iso_now()
     aid = stable_article_id(title, image or "")
@@ -244,10 +255,14 @@ def build_daily_record(entry) -> dict:
         "updated_at": now_iso
     }
 
-def get_entry_identity(entry) -> str:
+def get_entry_identity(entry, source_type="crunchyroll") -> str:
     """Dedup fingerprint: id (title + image)."""
-    title = getattr(entry, "title", "") or ""
-    image = extract_image(entry)
+    if source_type == "youtube":
+        title = entry.get("title", "") or ""
+        image = entry.get("thumbnail_url", "") or ""
+    else:
+        title = getattr(entry, "title", "") or ""
+        image = extract_image(entry)
     return stable_article_id(title, image or "")
 
 
@@ -341,9 +356,9 @@ def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: 
 
 
 # ====================
-# Persist Daily (Crunchyroll) - ONLY ONE
+# Persist Daily - supports multiple sources
 # ====================
-def save_single_news(entry):
+def save_single_news(entry, source_type="crunchyroll"):
     """
     Save ONLY 1 entry to today's JSON.
     Dedup by id within today's file.
@@ -353,11 +368,12 @@ def save_single_news(entry):
     path = daily_path(today)
     existing = load_json_list(path)
 
-    rec = build_daily_record(entry)
+    rec = build_daily_record(entry, source_type)
     new_id = (rec.get("id") or "").strip()
 
     existing_ids = {str(x.get("id") or "").strip() for x in existing}
     if new_id and new_id in existing_ids:
+        logging.info(f"Duplicate detected: {new_id} already exists")
         return None, str(path), None
 
     existing.append(rec)
@@ -496,7 +512,128 @@ def gi_append_records(new_records: list):
 
 
 # ====================
-# Telegram Senders
+# YouTube Integration
+# ====================
+def get_youtube_video_data(video_id: str) -> dict | None:
+    """Fetch video data using oEmbed API"""
+    try:
+        oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        response = requests.get(oembed_url, timeout=HTTP_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Get thumbnail URL (high quality)
+        thumbnail_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+        
+        return {
+            "title": data.get("title", ""),
+            "description": data.get("author_name", ""),  # Use author as description
+            "thumbnail_url": thumbnail_url,
+            "video_url": f"https://www.youtube.com/watch?v={video_id}",
+            "video_id": video_id,
+            "provider": data.get("provider_name", "YouTube"),
+            "type": data.get("type", "video")
+        }
+    except Exception as e:
+        logging.error(f"Failed to fetch YouTube oEmbed for {video_id}: {e}")
+        return None
+
+async def process_youtube_video(bot: telegram.Bot, video_id: str):
+    """Process a single YouTube video and save it as an article"""
+    video_data = get_youtube_video_data(video_id)
+    if not video_data:
+        logging.error(f"Could not fetch data for video {video_id}")
+        return False
+    
+    # Save as article
+    rec, day_path_str, idx = save_single_news(video_data, source_type="youtube")
+    
+    if rec is not None:
+        article_url = build_article_url(day_path_str, idx if idx is not None else 0)
+        
+        # Send to Telegram
+        caption = f"🎥 {video_data['title']}\n\n{video_data['description']}\n\n{article_url}"
+        try:
+            if video_data['thumbnail_url']:
+                await bot.send_photo(
+                    chat_id=TELEGRAM_CHAT_ID, 
+                    photo=video_data['thumbnail_url'], 
+                    caption=caption
+                )
+            else:
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=caption)
+        except Exception as e:
+            logging.error(f"Failed to send YouTube video: {e}")
+            return False
+        
+        # Update the article with processed image (if needed)
+        if video_data['thumbnail_url']:
+            webp = process_image_with_logo(video_data['thumbnail_url'], out_format="WEBP")
+            if webp:
+                rel_path, raw_url, created = save_webp_into_repo(
+                    title=rec.get("title") or "",
+                    original_url=video_data['thumbnail_url'],
+                    webp_bytes=webp,
+                    dt=now_local(),
+                )
+                rec["image"] = raw_url
+                rec["updated_at"] = iso_now()
+                logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
+                
+                # Update today's JSON with the new image URL
+                day_path = Path(day_path_str)
+                day_records = load_json_list(day_path)
+                if day_records and idx is not None and 0 <= idx < len(day_records):
+                    day_records[idx] = rec
+                    save_json_list(day_path, day_records)
+        
+        # Update manifests and global index
+        today = now_local()
+        update_month_manifest(today)
+        update_year_manifest(today)
+        
+        slim = convert_full_to_slim([rec], day_path_str)
+        gi_append_records(slim)
+        
+        logging.info(f"YouTube video processed: {video_data['title']}")
+        return True
+    
+    return False
+
+async def send_youtube_latest_if_new(bot: telegram.Bot):
+    """Check YouTube RSS for new videos and process them"""
+    feed = feedparser.parse(YOUTUBE_RSS_URL)
+    if not feed.entries:
+        logging.warning("No entries in YouTube feed")
+        return
+    
+    entry = feed.entries[0]
+    video_id = getattr(entry, "yt_videoid", None)
+    if not video_id:
+        # Try to extract from link
+        link = getattr(entry, "link", "")
+        if "v=" in link:
+            video_id = link.split("v=")[1].split("&")[0]
+    
+    if not video_id:
+        logging.error("Could not extract video ID from YouTube entry")
+        return
+    
+    last_vid = read_text_file(YOUTUBE_LAST_ID_FILE)
+    if last_vid and video_id == last_vid:
+        logging.info("YouTube: latest already sent. Skip.")
+        return
+    
+    # Process the video
+    success = await process_youtube_video(bot, video_id)
+    
+    if success:
+        write_text_file(YOUTUBE_LAST_ID_FILE, video_id)
+        logging.info(f"YouTube: sent latest video {video_id}")
+
+
+# ====================
+# Crunchyroll Senders
 # ====================
 async def send_crunchyroll_one(bot: telegram.Bot, entry, article_url: str | None = None):
     rec = build_daily_record(entry)
@@ -527,38 +664,6 @@ async def send_crunchyroll_one(bot: telegram.Bot, entry, article_url: str | None
 
     await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="📰 خبر جديد\n\n" + caption)
 
-async def send_youtube_latest_if_new(bot: telegram.Bot):
-    feed = feedparser.parse(YOUTUBE_RSS_URL)
-    if not feed.entries:
-        return
-
-    entry = feed.entries[0]
-    vid = getattr(entry, "yt_videoid", None) or getattr(entry, "id", None) or ""
-    title = getattr(entry, "title", "") or ""
-    url   = getattr(entry, "link", "") or ""
-
-    last_vid = read_text_file(YOUTUBE_LAST_ID_FILE)
-    if last_vid and vid and vid == last_vid:
-        logging.info("YT: latest already sent. Skip.")
-        return
-
-    thumb = None
-    if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
-        thumb = entry.media_thumbnail[0].get("url")
-
-    caption = f"🎥 {title}\n{url}"
-    try:
-        if thumb:
-            await bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=thumb, caption=caption)
-        else:
-            await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=caption)
-    except Exception as e:
-        logging.error(f"Failed to send YouTube: {e}")
-        return
-
-    write_text_file(YOUTUBE_LAST_ID_FILE, vid)
-    logging.info("YT: sent latest & saved id.")
-
 
 # ====================
 # Main
@@ -571,70 +676,76 @@ async def run():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
     # 1) Crunchyroll: ONLY latest, ONLY if new
-    news_feed = feedparser.parse(CRUNCHYROLL_RSS_URL)
-    if news_feed.entries:
-        latest = news_feed.entries[0]
-        fp = get_entry_identity(latest)
+    try:
+        news_feed = feedparser.parse(CRUNCHYROLL_RSS_URL)
+        if news_feed.entries:
+            latest = news_feed.entries[0]
+            fp = get_entry_identity(latest)
 
-        last_fp = read_text_file(CRUNCHYROLL_LAST_FP_FILE)
-        if last_fp and fp == last_fp:
-            logging.info("Crun: latest already processed/sent. Skip.")
-        else:
-            rec, day_path_str, idx = save_single_news(latest)
-
-            if rec is not None:
-                article_url = build_article_url(day_path_str, idx if idx is not None else 0)
-
-                # Send to Telegram with link
-                await send_crunchyroll_one(bot, latest, article_url=article_url)
-
-                # Make WebP, save into same repo, replace rec["image"]
-                original_img_url = rec.get("image")  # ORIGINAL URL used in id/hash
-                if original_img_url:
-                    webp = process_image_with_logo(original_img_url, out_format="WEBP")
-                    if webp:
-                        rel_path, raw_url, created = save_webp_into_repo(
-                            title=rec.get("title") or "",
-                            original_url=original_img_url,
-                            webp_bytes=webp,
-                            dt=now_local(),
-                        )
-                        rec["image"] = raw_url
-                        rec["updated_at"] = iso_now()
-                        logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
-                    else:
-                        logging.warning("Could not create WebP; keeping original image URL.")
-                else:
-                    logging.info("No image URL in entry; skip webp save.")
-
-                # Update today's JSON so it contains the new GitHub raw image URL
-                day_path = Path(day_path_str)
-                day_records = load_json_list(day_path)
-                if day_records:
-                    if idx is not None and 0 <= idx < len(day_records):
-                        day_records[idx] = rec
-                    else:
-                        day_records[-1] = rec
-                    save_json_list(day_path, day_records)
-
-                # manifests + global index
-                today = now_local()
-                update_month_manifest(today)
-                update_year_manifest(today)
-
-                slim = convert_full_to_slim([rec], day_path_str)
-                gi_append_records(slim)
-
-                write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
-                logging.info("Crun: sent & saved ONLY latest once.")
+            last_fp = read_text_file(CRUNCHYROLL_LAST_FP_FILE)
+            if last_fp and fp == last_fp:
+                logging.info("Crun: latest already processed/sent. Skip.")
             else:
-                write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
-                logging.info("Crun: latest already in today's data; marked fp to avoid resend.")
-    else:
-        logging.warning("No entries in Crunchyroll feed.")
+                rec, day_path_str, idx = save_single_news(latest)
+
+                if rec is not None:
+                    article_url = build_article_url(day_path_str, idx if idx is not None else 0)
+
+                    # Send to Telegram with link
+                    await send_crunchyroll_one(bot, latest, article_url=article_url)
+
+                    # Make WebP, save into same repo, replace rec["image"]
+                    original_img_url = rec.get("image")  # ORIGINAL URL used in id/hash
+                    if original_img_url:
+                        webp = process_image_with_logo(original_img_url, out_format="WEBP")
+                        if webp:
+                            rel_path, raw_url, created = save_webp_into_repo(
+                                title=rec.get("title") or "",
+                                original_url=original_img_url,
+                                webp_bytes=webp,
+                                dt=now_local(),
+                            )
+                            rec["image"] = raw_url
+                            rec["updated_at"] = iso_now()
+                            logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
+                        else:
+                            logging.warning("Could not create WebP; keeping original image URL.")
+                    else:
+                        logging.info("No image URL in entry; skip webp save.")
+
+                    # Update today's JSON so it contains the new GitHub raw image URL
+                    day_path = Path(day_path_str)
+                    day_records = load_json_list(day_path)
+                    if day_records:
+                        if idx is not None and 0 <= idx < len(day_records):
+                            day_records[idx] = rec
+                        else:
+                            day_records[-1] = rec
+                        save_json_list(day_path, day_records)
+
+                    # manifests + global index
+                    today = now_local()
+                    update_month_manifest(today)
+                    update_year_manifest(today)
+
+                    slim = convert_full_to_slim([rec], day_path_str)
+                    gi_append_records(slim)
+
+                    write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
+                    logging.info("Crun: sent & saved ONLY latest once.")
+                else:
+                    write_text_file(CRUNCHYROLL_LAST_FP_FILE, fp)
+                    logging.info("Crun: latest already in today's data; marked fp to avoid resend.")
+        else:
+            logging.warning("No entries in Crunchyroll feed.")
+    except Exception as e:
+        logging.error(f"Error processing Crunchyroll: {e}")
 
     # 2) YouTube: ONLY latest, ONLY if new
-    await send_youtube_latest_if_new(bot)
+    try:
+        await send_youtube_latest_if_new(bot)
+    except Exception as e:
+        logging.error(f"Error processing YouTube: {e}")
 
 
 if __name__ == "__main__":
