@@ -295,43 +295,76 @@ def downscale_to_fit(im: Image.Image) -> Image.Image:
 
 def overlay_logo(im: Image.Image) -> Image.Image:
     if not Path(LOGO_PATH).exists():
+        logging.warning(f"Logo file not found: {LOGO_PATH}")
         return im
+    
     try:
         logo = Image.open(LOGO_PATH).convert("RGBA")
+        
+        # Calculate logo size based on image dimensions
+        pw, ph = im.size
+        # Use min width ratio for videos (usually 16:9)
+        lw_ratio = LOGO_MIN_WIDTH_RATIO if pw < 600 else LOGO_MAX_WIDTH_RATIO
+        lw = int(max(1, min(pw - 2 * LOGO_MARGIN, pw * lw_ratio)))
+        ratio = lw / logo.width
+        lh = int(max(1, logo.height * ratio))
+        
+        # Resize logo
+        logo_resized = logo.resize((lw, lh), Image.LANCZOS)
+        
+        # Position logo in top-right corner
+        x = pw - lw - LOGO_MARGIN
+        y = LOGO_MARGIN
+        
+        # Paste logo with transparency
+        im.paste(logo_resized, (x, y), logo_resized)
+        return im
+        
     except Exception as e:
-        logging.error(f"Failed to open logo: {e}")
+        logging.error(f"Failed to overlay logo: {e}")
         return im
 
-    pw, _ = im.size
-    lw_ratio = LOGO_MIN_WIDTH_RATIO if pw < 600 else LOGO_MAX_WIDTH_RATIO
-    lw = int(max(1, min(pw - 2 * LOGO_MARGIN, pw * lw_ratio)))
-    ratio = lw / logo.width
-    lh = int(max(1, logo.height * ratio))
-    logo_resized = logo.resize((lw, lh), Image.LANCZOS)
-
-    x = pw - lw - LOGO_MARGIN
-    y = LOGO_MARGIN
-    im.paste(logo_resized, (x, y), logo_resized)
-    return im
-
 def process_image_with_logo(url: str, out_format: str = "JPEG") -> BytesIO | None:
+    """
+    Process image: fetch, resize, add logo overlay, and save in specified format.
+    Returns BytesIO object with processed image.
+    """
+    if not url:
+        logging.warning("No URL provided for image processing")
+        return None
+    
     base = fetch_image(url)
     if base is None:
+        logging.warning(f"Could not fetch image from {url}")
         return None
 
+    # Downscale if needed
     base = downscale_to_fit(base)
+    
+    # Add logo overlay
     base = overlay_logo(base)
 
+    # Save to BytesIO
     out = BytesIO()
     fmt = out_format.upper().strip()
 
-    if fmt == "WEBP":
-        base.convert("RGB").save(out, format="WEBP", quality=WEBP_QUALITY, method=6)
-    else:
-        base.convert("RGB").save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-
-    out.seek(0)
-    return out
+    try:
+        if fmt == "WEBP":
+            # Convert to RGB for WebP (WebP doesn't support all modes)
+            if base.mode != 'RGB':
+                base = base.convert('RGB')
+            base.save(out, format="WEBP", quality=WEBP_QUALITY, method=6, optimize=True)
+        else:
+            # Default to JPEG
+            if base.mode != 'RGB':
+                base = base.convert('RGB')
+            base.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        
+        out.seek(0)
+        return out
+    except Exception as e:
+        logging.error(f"Failed to save processed image: {e}")
+        return None
 
 def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: datetime) -> tuple[str, str, bool]:
     """
@@ -348,10 +381,12 @@ def save_webp_into_repo(title: str, original_url: str, webp_bytes: BytesIO, dt: 
     raw_url = build_raw_github_url(rel_path)
 
     if file_path.exists():
+        logging.info(f"Image already exists: {rel_path}")
         return rel_path, raw_url, False
 
     webp_bytes.seek(0)
     file_path.write_bytes(webp_bytes.read())
+    logging.info(f"Saved new image: {rel_path}")
     return rel_path, raw_url, True
 
 
@@ -512,7 +547,7 @@ def gi_append_records(new_records: list):
 
 
 # ====================
-# YouTube Integration
+# YouTube Integration with Logo
 # ====================
 def get_youtube_video_data(video_id: str) -> dict | None:
     """Fetch video data using oEmbed API"""
@@ -522,8 +557,24 @@ def get_youtube_video_data(video_id: str) -> dict | None:
         response.raise_for_status()
         data = response.json()
         
-        # Get thumbnail URL (high quality)
-        thumbnail_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+        # Get different thumbnail qualities
+        thumbnails = {
+            "default": f"https://i.ytimg.com/vi/{video_id}/default.jpg",
+            "mqdefault": f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+            "hqdefault": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+            "sddefault": f"https://i.ytimg.com/vi/{video_id}/sddefault.jpg",
+            "maxresdefault": f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+        }
+        
+        # Use highest quality available (maxresdefault, fallback to hqdefault)
+        thumbnail_url = thumbnails["maxresdefault"]
+        # Check if maxresdefault exists (test with HEAD request)
+        try:
+            head_response = requests.head(thumbnail_url, timeout=5)
+            if head_response.status_code != 200:
+                thumbnail_url = thumbnails["hqdefault"]
+        except:
+            thumbnail_url = thumbnails["hqdefault"]
         
         return {
             "title": data.get("title", ""),
@@ -539,7 +590,7 @@ def get_youtube_video_data(video_id: str) -> dict | None:
         return None
 
 async def process_youtube_video(bot: telegram.Bot, video_id: str):
-    """Process a single YouTube video and save it as an article"""
+    """Process a single YouTube video and save it as an article with logo overlay"""
     video_data = get_youtube_video_data(video_id)
     if not video_data:
         logging.error(f"Could not fetch data for video {video_id}")
@@ -551,23 +602,12 @@ async def process_youtube_video(bot: telegram.Bot, video_id: str):
     if rec is not None:
         article_url = build_article_url(day_path_str, idx if idx is not None else 0)
         
-        # Send to Telegram
-        caption = f"🎥 {video_data['title']}\n\n{video_data['description']}\n\n{article_url}"
-        try:
-            if video_data['thumbnail_url']:
-                await bot.send_photo(
-                    chat_id=TELEGRAM_CHAT_ID, 
-                    photo=video_data['thumbnail_url'], 
-                    caption=caption
-                )
-            else:
-                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=caption)
-        except Exception as e:
-            logging.error(f"Failed to send YouTube video: {e}")
-            return False
+        # Process thumbnail with logo for both web storage and Telegram
+        processed_image = None
+        webp_url = None
         
-        # Update the article with processed image (if needed)
         if video_data['thumbnail_url']:
+            # Create WebP with logo for the article
             webp = process_image_with_logo(video_data['thumbnail_url'], out_format="WEBP")
             if webp:
                 rel_path, raw_url, created = save_webp_into_repo(
@@ -577,15 +617,46 @@ async def process_youtube_video(bot: telegram.Bot, video_id: str):
                     dt=now_local(),
                 )
                 rec["image"] = raw_url
+                webp_url = raw_url
                 rec["updated_at"] = iso_now()
-                logging.info(f"WebP {'created' if created else 'exists'}: {rel_path}")
+                logging.info(f"WebP with logo {'created' if created else 'exists'}: {rel_path}")
                 
-                # Update today's JSON with the new image URL
-                day_path = Path(day_path_str)
-                day_records = load_json_list(day_path)
-                if day_records and idx is not None and 0 <= idx < len(day_records):
-                    day_records[idx] = rec
-                    save_json_list(day_path, day_records)
+                # Also create JPEG with logo for Telegram (better compatibility)
+                processed_image = process_image_with_logo(video_data['thumbnail_url'], out_format="JPEG")
+        
+        # Update today's JSON with the new image URL
+        day_path = Path(day_path_str)
+        day_records = load_json_list(day_path)
+        if day_records and idx is not None and 0 <= idx < len(day_records):
+            day_records[idx] = rec
+            save_json_list(day_path, day_records)
+        
+        # Send to Telegram with logo-overlayed image
+        caption = f"🎥 {video_data['title']}\n\n📺 {video_data['description']}\n\n🔗 {article_url}"
+        
+        try:
+            if processed_image:
+                # Send the image with logo overlay
+                await bot.send_photo(
+                    chat_id=TELEGRAM_CHAT_ID, 
+                    photo=processed_image, 
+                    caption=caption
+                )
+                logging.info(f"Sent YouTube video with logo: {video_data['title']}")
+            elif video_data['thumbnail_url']:
+                # Fallback to original thumbnail if processing failed
+                await bot.send_photo(
+                    chat_id=TELEGRAM_CHAT_ID, 
+                    photo=video_data['thumbnail_url'], 
+                    caption=caption
+                )
+                logging.info(f"Sent YouTube video without logo: {video_data['title']}")
+            else:
+                # Send without image
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=caption)
+        except Exception as e:
+            logging.error(f"Failed to send YouTube video: {e}")
+            return False
         
         # Update manifests and global index
         today = now_local()
@@ -595,13 +666,13 @@ async def process_youtube_video(bot: telegram.Bot, video_id: str):
         slim = convert_full_to_slim([rec], day_path_str)
         gi_append_records(slim)
         
-        logging.info(f"YouTube video processed: {video_data['title']}")
+        logging.info(f"YouTube video processed successfully: {video_data['title']}")
         return True
     
     return False
 
 async def send_youtube_latest_if_new(bot: telegram.Bot):
-    """Check YouTube RSS for new videos and process them"""
+    """Check YouTube RSS for new videos and process them with logo"""
     feed = feedparser.parse(YOUTUBE_RSS_URL)
     if not feed.entries:
         logging.warning("No entries in YouTube feed")
@@ -624,7 +695,7 @@ async def send_youtube_latest_if_new(bot: telegram.Bot):
         logging.info("YouTube: latest already sent. Skip.")
         return
     
-    # Process the video
+    # Process the video with logo overlay
     success = await process_youtube_video(bot, video_id)
     
     if success:
