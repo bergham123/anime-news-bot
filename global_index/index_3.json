@@ -1527,5 +1527,16 @@
     "created_at": "2026-04-01T15:15:47.707980+01:00",
     "updated_at": "2026-04-01T15:15:49.653494+01:00",
     "path": "data/2026/04/01-04.json#0"
+  },
+  {
+    "id": "a7c9c7aa049e",
+    "title": "الأنمي المتلفز Love Live! Hasunosora Jyogakuin School Idol Club سيُعرض في يناير 2027",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/04/الأنمي-المتلفز-love-live-hasunosora-jyogakuin-school-idol-cl-a7c9c7aa049e.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-04-01T16:55:21.685744+01:00",
+    "updated_at": "2026-04-01T16:55:23.758639+01:00",
+    "path": "data/2026/04/01-04.json#0"
   }
 ]
