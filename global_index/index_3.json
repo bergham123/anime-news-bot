@@ -1560,5 +1560,16 @@
     "created_at": "2026-04-02T17:35:42.814648+01:00",
     "updated_at": "2026-04-02T17:35:45.432492+01:00",
     "path": "data/2026/04/02-04.json#0"
+  },
+  {
+    "id": "160e438d3b47",
+    "title": "تقرير عن Daemons of the Shadow Realm أين يمكنك مشاهدته والمقطع الدعائي وطاقم الشخصيات والمزيد",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/04/تقرير-عن-daemons-of-the-shadow-realm-أين-يمكنك-مشاهدته-والمق-160e438d3b47.webp",
+    "categories": [
+      "دليل"
+    ],
+    "created_at": "2026-04-03T14:47:33.455756+01:00",
+    "updated_at": "2026-04-03T14:47:35.746417+01:00",
+    "path": "data/2026/04/03-04.json#0"
   }
 ]
