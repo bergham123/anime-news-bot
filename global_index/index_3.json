@@ -1593,5 +1593,16 @@
     "created_at": "2026-04-03T17:06:12.640007+01:00",
     "updated_at": "2026-04-03T17:06:14.965163+01:00",
     "path": "data/2026/04/03-04.json#0"
+  },
+  {
+    "id": "15529617c35c",
+    "title": "الإعلان عن مشروع أنمي Kamen Rider",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/04/الإعلان-عن-مشروع-أنمي-kamen-rider-15529617c35c.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-04-04T16:59:34.426826+01:00",
+    "updated_at": "2026-04-04T16:59:36.600279+01:00",
+    "path": "data/2026/04/04-04.json#0"
   }
 ]
