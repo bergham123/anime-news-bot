@@ -2583,5 +2583,16 @@
     "created_at": "2026-06-06T13:00:00.880449+01:00",
     "updated_at": "2026-06-06T13:00:03.156796+01:00",
     "path": "data/2026/06/06-06.json#0"
+  },
+  {
+    "id": "a9297d90c329",
+    "title": "أنمي The Villager of Level 999 يحدد موعد عرضه في 1 يوليو 2026 مع مقطع دعائي جديد",
+    "image": "https://raw.githubusercontent.com/bergham123/anime-news-bot/main/images/2026/06/أنمي-the-villager-of-level-999-يحدد-موعد-عرضه-في-1-يوليو-202-a9297d90c329.webp",
+    "categories": [
+      "آخر أخبار الأنمي"
+    ],
+    "created_at": "2026-06-08T11:06:54.313011+01:00",
+    "updated_at": "2026-06-08T11:06:56.719286+01:00",
+    "path": "data/2026/06/08-06.json#0"
   }
 ]
