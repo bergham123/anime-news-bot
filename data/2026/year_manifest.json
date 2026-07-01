@@ -1,6 +1,7 @@
 {
   "year": "2026",
   "months": {
+    "07": "data/2026/07/month_manifest.json",
     "06": "data/2026/06/month_manifest.json",
     "05": "data/2026/05/month_manifest.json",
     "04": "data/2026/04/month_manifest.json",
